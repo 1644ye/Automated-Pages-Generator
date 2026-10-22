@@ -2,7 +2,7 @@
 const {randomUUID}=require('node:crypto');
 const {createAnswerRuntime}=require('./doubao-answer.cjs');
 const {installFetchProbe}=require('./doubao-fetch-probe.cjs');
-function bounded(promise,ms){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('网页调用超时')),ms);Promise.resolve(promise).then(value=>{clearTimeout(timer);resolve(value)},error=>{clearTimeout(timer);reject(error)})})}
+function bounded(promise,ms){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Object.assign(Error('网页调用超时'),{code:'PAGE_TIMEOUT'})),ms);Promise.resolve(promise).then(value=>{clearTimeout(timer);resolve(value)},error=>{clearTimeout(timer);reject(error)})})}
 
 // All templates and credentials stay in the page's closure. CDP below only
 // compares the actual outgoing signature in RAM; it never replays a request.
@@ -33,7 +33,7 @@ class BackendProbe {
    installation.then(()=>{if(this.stopping||this.phase==='blocked')this.disposePage().catch(()=>{})},()=>{});
    const page=await bounded(installation,5000);
    if(this.stopping||this.phase!=='starting')throw Error('校准启动已中断');this.page=page;
-   this.phase='active';this.timer=setInterval(()=>this.poll().catch(()=>this.invalidate('无法读取网页内存状态，请停止后重新开始。')),800);this.timer.unref?.();
+   this.phase='active';this.timer=setInterval(()=>this.poll().catch(()=>{}),800);this.timer.unref?.();
    this.onStatus(this.snapshot());return this.snapshot();
   }catch{await this.dispose();throw Error('无法建立后台校准，请确认豆包页面已加载且未被其他调试器占用')}
  }
@@ -54,12 +54,19 @@ class BackendProbe {
  invalidate(reason){if(this.stopping)return;this.epoch++;this.phase='blocked';this.reason=reason;clearInterval(this.timer);this.disposePage().catch(()=>{});this.onStatus(this.snapshot())}
  async invoke(method,value) {
   if(!this.attached||this.contents.isDestroyed())throw Error('网页连接已失效');
-  return bounded(this.contents.executeJavaScript(`(()=>{const p=window[${JSON.stringify(this.key)}];if(!p)throw Error('Calibration expired');return p.${method}(${JSON.stringify(value)??''})})()`),5000);
+  return bounded(this.contents.executeJavaScript(`(()=>{const p=window[${JSON.stringify(this.key)}];if(!p)throw Object.assign(Error('Calibration expired'),{code:'BRIDGE_MISSING'});return p.${method}(${JSON.stringify(value)??''})})()`),['snapshot','taskSnapshot'].includes(method)?15000:5000);
  }
  async poll() {
   if(this.polling||this.stopping||this.phase!=='active')return;
   if(!this.businessVerified&&Date.now()>this.deadline){this.invalidate('已达到5分钟测试上限，未自动重试。请结束并保存。');await this.disposePage();return}
-  const epoch=this.epoch;this.polling=true;try{const page=await this.invoke('snapshot');if(this.stopping||epoch!==this.epoch)return;this.page=page;if(this.snapshot().verified)this.businessVerified=true;this.onStatus(this.snapshot())}finally{this.polling=false}
+  const epoch=this.epoch;this.polling=true;try{const page=await this.invoke('snapshot');if(this.stopping||epoch!==this.epoch)return;this.readFailures=0;this.readHealth=null;this.page=page;if(this.snapshot().verified)this.businessVerified=true;this.onStatus(this.snapshot())}catch(error){if(!this.stopping&&epoch===this.epoch)this.readFailure('status',error)}finally{this.polling=false}
+ }
+ readFailure(kind,error){
+  const counter=kind==='status'?'readFailures':'taskReadFailures';this[counter]=(this[counter]||0)+1;
+  const code=error?.code==='PAGE_TIMEOUT'?'timeout':/Calibration expired/.test(error?.message||'')?'bridge-missing':'evaluation-failed';
+  this.readHealth={kind,code,failures:this[counter]};
+  if(code==='bridge-missing'||this.contents.isDestroyed()||this[counter]>=3){this.invalidate('读取后台状态连续失败（'+code+'）；已暂停，未重新发送任务。请保存报告。');return}
+  this.onStatus(this.snapshot());
  }
  async runTest() {
   if(this.stopping||this.phase!=='active'||this.page?.phase!=='ready')throw Error('请先完成三轮手动校准并确认状态已就绪');
@@ -76,23 +83,23 @@ class BackendProbe {
  }
  snapshot() {
   const signature=this.signatureResult();const page=this.page||{};
-  return {phase:this.phase==='active'?page.phase||'observing':this.phase,reason:this.reason||page.reason||'',deadline:this.deadline,
+  return {readHealth:this.readHealth||null,phase:this.phase==='active'?page.phase||'observing':this.phase,reason:this.reason||page.reason||'',deadline:this.deadline,
    probes:this.probes.map(p=>({id:p.id,prompt:p.prompt,...(page.probes||[]).find(v=>v.id===p.id)})),
    requestShapeReady:!!page.requestShapeReady,preSignInput:page.preSignInput===true,
    cursorEvidence:page.cursorEvidence||null,test:page.test||{sent:false,complete:false,exact:false},network:[...this.network.values()],signature,
    verified:this.phase==='active'&&['passed','generating'].includes(page.phase)&&page.test?.complete===true&&page.test?.exact===true&&signature==='fresh'&&this.probes.every(p=>this.network.get(p.id)?.requests===1),
-   queueEnabled:!this.stopping&&this.phase==='active'&&signature==='fresh'&&this.probes.every(p=>this.network.get(p.id)?.requests===1)&&this.businessVerified===true&&['passed','generating'].includes(page.phase)};
+   queueEnabled:!this.readHealth&&!this.stopping&&this.phase==='active'&&signature==='fresh'&&this.probes.every(p=>this.network.get(p.id)?.requests===1)&&this.businessVerified===true&&['passed','generating'].includes(page.phase)};
  }
 
  async startTask(id,prompt){
   if(!this.snapshot().queueEnabled||this.stopping)throw Error('请先完成当前网页的后台连接测试');
   if(this.operation)throw Error('上一条后台任务尚未确认');
-  this.operation={id,prompt};
+  this.operation={id,prompt};this.lastTaskText='';this.taskReadFailures=0;
   try{await this.invoke('startTask',{id,prompt});return {session:this.key,id}}catch{this.invalidate('发送状态不明，可能已经发送；不会自动重发');throw Error(this.reason)}
  }
  async taskResult(track){
   if(track?.session!==this.key||track.id!==this.operation?.id||this.stopping||this.phase!=='active')throw Error('原任务连接已失效；请取消此任务后重新创建，不会自动重发');
-  const result=await this.invoke('taskSnapshot',track.id);
+  let result;try{result=await this.invoke('taskSnapshot',track.id);this.taskReadFailures=0}catch(error){this.readFailure('task',error);if(this.phase!=='active')throw Error(this.reason);return {text:this.lastTaskText||'',complete:false}}this.lastTaskText=result.text||'';
   if(result.error)throw Error(result.error);
   if(result.complete){
    const evidence=this.network.get(track.id),signature=this.signatures.get(track.id);

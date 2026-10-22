@@ -91,3 +91,12 @@ test('business result requires fresh single observed request and original sessio
   await host.stop();assert.equal(host.snapshot().queueEnabled,false);
  }
 });
+
+test('temporary status read failures preserve bridge; success recovers; three failures stop without sending',async()=>{
+ const {host,page,contents,calls}=setup();await host.start();const execute=contents.executeJavaScript;
+ contents.executeJavaScript=code=>code.includes('.snapshot()')?Promise.reject(Object.assign(Error('private detail'),{code:'PAGE_TIMEOUT'})):execute(code);
+ await host.poll();assert.equal(host.phase,'active');assert.equal(host.snapshot().readHealth.code,'timeout');assert.ok(!calls.some(c=>c.includes('.dispose()')));
+ contents.executeJavaScript=execute;await host.poll();assert.equal(host.snapshot().readHealth,null);
+ contents.executeJavaScript=code=>code.includes('.snapshot()')?Promise.reject(Error('private detail')):execute(code);
+ await host.poll();await host.poll();assert.equal(host.phase,'active');await host.poll();assert.equal(host.phase,'blocked');assert.doesNotMatch(JSON.stringify(host.snapshot()),/private detail/);await host.stop();
+});

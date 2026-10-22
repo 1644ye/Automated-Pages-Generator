@@ -35,8 +35,8 @@ async function finishBackend(){
 }
 app.whenReady().then(async()=>{core=await import('../shared/core.mjs');dir=app.getPath('userData');await fs.mkdir(dir,{recursive:true});try{state=JSON.parse(await fs.readFile(join(dir,'state.json'),'utf8'))}catch(e){if(e.code!=='ENOENT')throw e;state={tasks:[],exports:[],rules:{},paused:true}}
  for(const t of state.tasks)if(['生成中','待导出'].includes(t.status)){t.status='待人工处理';t.error='程序已重启，任务未自动重发；请检查网页并恢复或取消。'}state.paused=true;
- win=new BrowserWindow({width:1500,height:960,minWidth:1100,minHeight:700,webPreferences:{preload:join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
- view=new WebContentsView({webPreferences:{partition:'persist:doubao',contextIsolation:true,nodeIntegration:false,sandbox:true}});win.contentView.addChildView(view);bounds();win.on('resize',bounds);driver=new BrowserDriver(view,state.rules,send);
+ win=new BrowserWindow({width:1500,height:960,minWidth:1100,minHeight:700,webPreferences:{preload:join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false}});
+ view=new WebContentsView({webPreferences:{partition:'persist:doubao',contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false}});win.contentView.addChildView(view);bounds();win.on('resize',bounds);driver=new BrowserDriver(view,state.rules,send);
  const allowed=url=>{try{const u=new URL(url);return u.protocol==='https:'&&(u.hostname==='doubao.com'||u.hostname.endsWith('.doubao.com'))}catch{return false}};
  view.webContents.on('will-navigate',(e,url)=>{if(!allowed(url)){e.preventDefault();state.browserError='外部链接请在系统浏览器打开；未自动跳转：'+url;send()}});view.webContents.setWindowOpenHandler(({url})=>{if(allowed(url))view.webContents.loadURL(url).catch(()=>{});return {action:'deny'}});view.webContents.session.setPermissionRequestHandler((_w,_p,cb)=>cb(false));
  navigation=new Navigation(view.webContents,patch=>{Object.assign(state,patch);send()});
