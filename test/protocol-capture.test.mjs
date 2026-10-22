@@ -72,3 +72,33 @@ test('user-triggered EventSource and NDJSON are supported without reading histor
  d.event('requestWillBeSent',{requestId:'event-source',type:'EventSource',request:{url:'https://www.doubao.com/api/stream',method:'GET'}});response(d,'event-source','application/x-ndjson');await delay(0);d.event('loadingFinished',{requestId:'event-source'});await delay(0);
  const r=(await c.stop()).requests[0];assert.equal(r.method,'GET');assert.equal(r.stream.eventCount,2);assert.equal(r.stream.transportEnded,true);assert.ok(r.stream.observedEndMarkers.some(m=>m.kind==='boolean-end-flag'));assert.doesNotMatch(JSON.stringify(r),/SECRET_ONE/);
 });
+test('targeted calibration keeps two requests, ordered event names and local binding aliases without values',async()=>{
+ const probes=[{id:'probe-1',marker:'APG_TEST_ONE_PRIVATE'},{id:'probe-2',marker:'APG_TEST_TWO_PRIVATE'}];
+ const {d,c}=setup({'Network.streamResourceContent':({requestId})=>({bufferedData:b64('event: SERVER_DELTA\ndata: '+JSON.stringify({text:probes[requestId==='one'?0:1].marker,message_id:'PRIVATE_REPLY_'+requestId})+'\n\nevent: SERVER_FINISH\ndata: {"is_finish":true}\n\n')})},{targeted:true,probes,maxRequests:4});
+ await c.start();request(d,'telemetry');request(d,'wrong-host',{url:'https://api.doubao.com/chat/completion'});
+ for(const [i,id] of ['one','two'].entries()){
+  request(d,id,{url:'https://www.doubao.com/chat/completion?msToken=PRIVATE_TOKEN_'+id+'&device_id=PRIVATE_DEVICE',postData:JSON.stringify({conversationInfo:{conversation_id:'PRIVATE_CONVERSATION'},messages:[{local_message_id:'PRIVATE_LOCAL_'+id,content_block:{text:probes[i].marker}}]})});
+  d.event('responseReceived',{requestId:id,response:{url:'https://www.doubao.com/chat/completion',status:200,mimeType:'text/event-stream'}});await delay(0);d.event('loadingFinished',{requestId:id});await delay(0);
+ }
+ const progress=c.status();assert.equal(progress.probeResponses.length,2);assert.ok(progress.probeResponses.every(p=>p.requests[0].httpEnded));
+ const report=await c.stop();assert.equal(report.schemaVersion,2);assert.equal(report.requests.length,2);assert.equal(report.evidence.timeline.length,4);
+ assert.deepEqual(report.evidence.timeline.map(f=>f.event),['SERVER_DELTA','SERVER_FINISH','SERVER_DELTA','SERVER_FINISH']);
+ assert.ok(report.requests[0].request.fields.some(f=>f.path==='$.messages[*].content_block.text'));
+ const alias=req=>req.request.observations.find(o=>o.path==='$.conversationInfo.conversation_id').alias;assert.equal(alias(report.requests[0]),alias(report.requests[1]));
+ assert.equal(report.requests[1].queryChanges.find(q=>q.key==='msToken').comparison,'changed');assert.equal(report.requests[1].queryChanges.find(q=>q.key==='device_id').comparison,'same');
+ assert.ok(report.evidence.timeline[0].observations.some(o=>o.matches?.some(m=>m.probe==='probe-1'&&m.match==='exact')));
+ assert.doesNotMatch(JSON.stringify(report),/PRIVATE_|SECRET_|APG_TEST_ONE|APG_TEST_TWO/);assert.equal(c.previousQuery.size,0);assert.equal(c.evidence.disposed,true);
+ assert.ok(d.commands.every(x=>['Network.enable','Network.streamResourceContent','Network.getResponseBody'].includes(x.method)));
+});
+test('targeted capture excludes other same-site endpoints and sanitizes extra header names',async()=>{
+ const {d,c}=setup({}, {targeted:true});await c.start();request(d,'other',{url:'https://www.doubao.com/chat/other'});
+ request(d,'one',{url:'https://www.doubao.com/chat/completion'});d.event('requestWillBeSentExtraInfo',{requestId:'one',headers:{'x-csrf-token':'PRIVATE_CSRF',Cookie:'PRIVATE_COOKIE','https://private.example':'PRIVATE_BAD'}});
+ const report=await c.stop();assert.equal(report.requests.length,1);assert.ok(report.requests[0].requestHeaderNames.includes('x-csrf-token'));assert.doesNotMatch(JSON.stringify(report),/PRIVATE_|private.example/);
+});
+test('target header names can arrive before the request without collecting header values',async()=>{
+ const {d,c}=setup({}, {targeted:true});await c.start();
+ d.event('requestWillBeSentExtraInfo',{requestId:'one',headers:{'x-csrf-token':'PRIVATE_CSRF',Cookie:'PRIVATE_COOKIE'}});
+ d.event('requestWillBeSentExtraInfo',{requestId:'outside',headers:{'x-private-field':'PRIVATE_FOREIGN'}});
+ request(d,'outside',{url:'https://example.com/chat/completion'});request(d,'one',{url:'https://www.doubao.com/chat/completion'});
+ const report=await c.stop();assert.equal(report.requests.length,1);assert.ok(report.requests[0].extraHeaderNamesObserved);assert.ok(report.requests[0].requestHeaderNames.includes('x-csrf-token'));assert.ok(!report.requests[0].requestHeaderNames.includes('x-private-field'));assert.equal(c.pendingHeaderNames.size,0);assert.doesNotMatch(JSON.stringify(report),/PRIVATE_/);
+});

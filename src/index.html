@@ -3,10 +3,13 @@
 <body><header><b>APG · 页面生成器</b><span>本地工作区 / 豆包 Chromium · <span id="appVersion"></span></span><button id="reload">重新打开豆包</button></header>
 <main><p id="notice">正在载入本地工作区…</p>
 <section id="connection"><h2>后台对话接入 · 协议验证</h2><p id="connectionStatus"></p>
-<ol><li>在右侧完成登录，打开一个测试会话。</li><li>点击开始采集，再手动发送：<code>请用三句话介绍春天。</code></li><li>等待回答结束，点击结束并导出，把生成的 JSON 文件交给开发者。</li></ol>
-<button id="startProtocol">开始协议采集</button><button id="stopProtocol" disabled>结束并导出</button>
+<p>已确认真实对话端点。现在需要确认字段、事件顺序与两轮消息的关联；此步骤不会自动发送任务。</p>
+<ol><li>在右侧完成登录，新建一个普通测试会话，点击「开始校准」。</li><li>点击「复制测试1」，在右侧手动粘贴发送，等待回答结束。</li><li>在同一会话中发送「复制测试2」的内容，等待回答结束，再「结束并导出」。</li></ol>
+<button id="startProtocol">开始校准</button><button id="stopProtocol" disabled>结束并导出</button>
+<div class="probe-row"><button id="copyProbe1" disabled>复制测试1</button><span id="probe1Status"></span><pre id="probe1Text"></pre></div>
+<div class="probe-row"><button id="copyProbe2" disabled>复制测试2</button><span id="probe2Status"></span><pre id="probe2Text"></pre></div>
 <p id="protocolStatus" role="status"></p><p id="protocolPath"></p>
-<p class="hint">采集最多 120 秒，队列保持暂停。只记录脱敏请求路径、字段类型和流事件结构；消息正文、请求头值、Cookie 与登录存储不写入诊断文件。采集不会点击、发送或重放请求。请在登录后再开始采集。</p>
+<p class="hint">最多 180 秒，只采集已确认的对话接口。保留协议字段名、事件顺序、控制状态、ID 的本次别名和合成测试匹配信息；正文、查询值、请求头值、Cookie 与登录存储不写入诊断文件。队列保持暂停，采集不会点击、发送或重放请求。</p>
 <details><summary>原网页模式 · 定位诊断</summary><p id="legacyStatus"></p><button id="jumpRules">查看定位设置</button><button id="diagnostics">导出页面结构</button><p id="diagnosticPath"></p></details>
 </section>
 <section><h2>输入与任务</h2><div id="inputs"></div><label><input id="network" type="checkbox">要求联网搜索（需确认网页已启用）</label><details><summary>提示词编辑</summary><textarea id="prompt" rows="4">根据真实输入生成可导入 Shopify 的英文页面及首页与 SEO 文案。遵守现有字段结构和规则，不虚构事实。</textarea></details><details><summary>字段选择 · 不选则生成整条数据</summary><p>选中字段任务以当前结果编辑框为基准；未选字段原样保留。</p><div id="fields"></div></details><button id="add">加入串行队列</button><button id="resume">网页模式：检查并继续</button><button id="pause">暂停队列</button><p>后台直连尚未接通。原网页模式需完成定位适配后才能发送任务。暂停保留当前任务绑定，继续时不重发；取消后如网页仍在生成，请手动停止。</p></section>

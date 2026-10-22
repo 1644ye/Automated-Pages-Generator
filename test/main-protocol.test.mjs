@@ -9,7 +9,7 @@ const require=createRequire(import.meta.url);
 const mainSource=readFileSync(new URL('../src/main.cjs',import.meta.url),'utf8');
 function deferred(){let resolve;const promise=new Promise(r=>{resolve=r});return {promise,resolve}}
 function setup({ready=async()=>{},write=async()=>{},start=async()=>{},paused=false,tasks=[{id:'synthetic-task',status:'待处理',request:'synthetic prompt'}]}={}){
- const counts={capture:0,ready:0,send:0,prepare:0,poll:0,navigate:0,visible:0};
+ const counts={capture:0,ready:0,send:0,prepare:0,poll:0,navigate:0,visible:0,clipboard:0};
  const written=[];let command;
  const state={paused,tasks,exports:[],rules:{}};
  const win={isDestroyed:()=>false,webContents:{send(){}},getContentSize:()=>[1500,960]};
@@ -21,7 +21,7 @@ function setup({ready=async()=>{},write=async()=>{},start=async()=>{},paused=fal
   async stop(reason){this.phase='stopped';return {reason,requests:[]}}
  }
  const dependencies={
-  electron:{app:{whenReady:()=>({then(){}}),on(){},getVersion:()=> 'synthetic-version'},ipcMain:{handle(name,callback){assert.equal(name,'command');command=callback}},Menu:{},shell:{}},
+  electron:{app:{whenReady:()=>({then(){}}),on(){},getVersion:()=> 'synthetic-version'},ipcMain:{handle(name,callback){assert.equal(name,'command');command=callback}},Menu:{},shell:{},clipboard:{writeText(text){counts.clipboard++;assert.match(text,/APG_PROBE_(ONE|TWO)_/);}}},
   'node:fs/promises':{async writeFile(file,value){written.push({file,value});await write()},async rename(){},async mkdir(){}},
   './browser.cjs':{BrowserDriver:class{},keys:[]},
   './navigation.cjs':{Navigation:class{}},
@@ -63,4 +63,10 @@ test('concurrent starts create only one capture, including before the pause save
  await assert.rejects(app.call('startProtocol'),/请先结束当前协议采集/);
  gate.resolve();await first;
  assert.equal(app.counts.capture,1);assert.equal(app.protocol().phase,'recording');assert.equal(app.state.paused,true);assert.equal(app.counts.send,0);
+});
+test('calibration copies only an explicitly chosen synthetic probe and never sends it',async()=>{
+ const app=setup();await assert.rejects(app.call('copyProbe','probe-1'),/先开始校准/);assert.equal(app.counts.clipboard,0);
+ await app.call('startProtocol');assert.equal(app.protocol().probes.length,2);assert.notEqual(app.protocol().probes[0].marker,app.protocol().probes[1].marker);assert.equal(app.counts.clipboard,0);
+ await app.call('copyProbe','probe-1');await app.call('copyProbe','probe-2');await assert.rejects(app.call('copyProbe','untrusted-message'),/无效/);
+ assert.equal(app.counts.clipboard,2);assert.equal(app.counts.send,0);assert.equal(app.counts.prepare,0);assert.equal(app.state.paused,true);
 });

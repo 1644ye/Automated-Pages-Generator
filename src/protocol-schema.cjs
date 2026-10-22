@@ -1,6 +1,7 @@
 'use strict';
 
 const { StringDecoder } = require('node:string_decoder');
+const { safeProtocolName } = require('./protocol-detail.cjs');
 
 // Schema names are useful evidence; arbitrary map keys may be user content or IDs.
 // Unknown names stay redacted until a reviewed rule is added here.
@@ -132,14 +133,14 @@ function jsonShape(input, options = {}) {
   catch { return { format: 'non-json', fields: [], truncated: false }; }
 }
 
-function collectMarkers(value, add, depth = 0, path = '$', budget = { remaining: 256 }) {
+function collectMarkers(value, add, depth = 0, path = '$', budget = { remaining: 256 }, naming = safeName) {
   if (!value || typeof value !== 'object' || depth > 8 || budget.remaining-- <= 0) return;
   for (const key of Object.keys(value).slice(0, 50)) {
     if (budget.remaining <= 0) break;
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (!descriptor || !('value' in descriptor)) continue;
     const item = descriptor.value;
-    const fieldPath = Array.isArray(value) ? `${path}[*]` : `${path}.${safeName(key)}`;
+    const fieldPath = Array.isArray(value) ? `${path}[*]` : `${path}.${naming(key)}`;
     if (['finish_reason', 'stop_reason'].includes(key) && FINISH_REASONS.has(item)) {
       add({ kind: 'finish-reason', path: fieldPath, value: item });
     } else if (key === 'type' && TYPE_MARKERS.has(item)) {
@@ -147,7 +148,7 @@ function collectMarkers(value, add, depth = 0, path = '$', budget = { remaining:
     } else if (['done', 'is_end', 'is_finish', 'is_final', 'is_complete'].includes(key) && item === true) {
       add({ kind: 'boolean-end-flag', path: fieldPath, value: true });
     }
-    collectMarkers(item, add, depth + 1, fieldPath, budget);
+    collectMarkers(item, add, depth + 1, fieldPath, budget, naming);
   }
 }
 
@@ -155,6 +156,8 @@ class ProtocolStream {
   constructor(options = {}) {
     if (options.format && !['sse', 'ndjson'].includes(options.format)) throw new TypeError('Unsupported stream format');
     this.format = options.format || 'sse';
+    this.evidence = options.evidence;
+    this.channel = options.channel || 'stream';
     this.maxBytes = bounded(options.maxBytes, 1024 * 1024, 128, 8 * 1024 * 1024);
     this.maxEvents = bounded(options.maxEvents, 64, 1, 256);
     this.maxFrameBytes = bounded(options.maxFrameBytes, 128 * 1024, 128, 512 * 1024);
@@ -235,7 +238,7 @@ class ProtocolStream {
     const colon = line.indexOf(':');
     const field = colon < 0 ? line : line.slice(0, colon);
     const raw = colon < 0 ? '' : line.slice(colon + 1).replace(/^ /, '');
-    if (field === 'event') this.event = SAFE_EVENTS.has(raw) ? raw : 'other';
+    if (field === 'event') this.event = this.evidence ? (safeProtocolName(raw) || 'redacted-event') : (SAFE_EVENTS.has(raw) ? raw : 'other');
     if (field === 'data') {
       this.frameBytes += Buffer.byteLength(raw) + 1;
       if (this.frameBytes > this.maxFrameBytes) {
@@ -268,15 +271,16 @@ class ProtocolStream {
     this.eventCount++;
     if (END_EVENTS.has(event)) this.addMarker({ kind: 'event', value: event });
     if (this.format === 'sse' && payload === '[DONE]') {
+      this.evidence?.record(event, payload, {channel:this.channel,maxBytes:this.maxFrameBytes});
       this.storeSchema(event, { format: 'sentinel', fields: [], truncated: false });
       this.addMarker({ kind: 'sse-sentinel', value: '[DONE]' });
       return;
     }
-    const shape = jsonShape(payload, { maxBytes: this.maxFrameBytes });
-    this.storeSchema(event, shape);
+    const shape = this.evidence ? this.evidence.record(event,payload,{channel:this.channel,maxBytes:this.maxFrameBytes}) : jsonShape(payload, { maxBytes: this.maxFrameBytes });
+    this.storeSchema(event, {format:shape.format,fields:shape.fields,truncated:shape.truncated});
     this.truncated ||= shape.truncated;
     if (shape.format !== 'json') this.invalidPayloads++;
-    else collectMarkers(JSON.parse(payload), marker => this.addMarker(marker));
+    else collectMarkers(JSON.parse(payload), marker => this.addMarker(marker),0,'$',{remaining:256},this.evidence ? name=>safeProtocolName(name)||'[key]' : safeName);
   }
 
   storeSchema(event, shape) {
