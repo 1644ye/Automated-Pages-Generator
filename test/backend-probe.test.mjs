@@ -32,7 +32,7 @@ test('probe start injects an observer but performs no send, and reports no sensi
 test('background test is gated by two unique and different signed manual requests',async()=>{
  const {host,page,calls}=setup();await host.start();page.phase='ready';await host.poll();
  await assert.rejects(host.runTest(),/尚未观察/);
- request(host,host.probes[0],'sig-a');request(host,host.probes[1],'sig-a');
+ request(host,host.probes[0],'sig-a');request(host,host.probes[1],'sig-a');request(host,host.probes[2],'sig-d');
  await assert.rejects(host.runTest(),/尚未观察/);
  host.signatures.set('probe-2','sig-b');await host.runTest();
  assert.ok(calls.at(-1).includes('.test()'));await host.stop();
@@ -40,11 +40,11 @@ test('background test is gated by two unique and different signed manual request
 
 test('a complete page probe requires a newly observed signature for verified status',async()=>{
  const {host,page}=setup();await host.start();
- request(host,host.probes[0],'sig-a');request(host,host.probes[1],'sig-b');
+ request(host,host.probes[0],'sig-a');request(host,host.probes[1],'sig-b');request(host,host.probes[2],'sig-d');
  page.phase='passed';page.test={sent:true,complete:true,exact:true};await host.poll();
  assert.equal(host.snapshot().verified,false);
  request(host,host.test,'sig-b');assert.equal(host.snapshot().signature,'reused');assert.equal(host.snapshot().verified,false);
- host.network.delete('probe-3');request(host,host.test,'sig-c');assert.equal(host.snapshot().verified,true);
+ host.network.delete('probe-4');request(host,host.test,'sig-c');assert.equal(host.snapshot().verified,true);
  request(host,host.test,'sig-c');assert.equal(host.snapshot().verified,false);assert.equal(host.snapshot().signature,'duplicate');
  await host.stop();
 });
@@ -59,7 +59,7 @@ test('unbound requests do not count and navigation invalidates the in-memory ses
 
 test('stop closes the send gate immediately even while its final snapshot is awaiting',async()=>{
  const {host,page,contents}=setup();await host.start();page.phase='ready';await host.poll();
- request(host,host.probes[0],'sig-a');request(host,host.probes[1],'sig-b');
+ request(host,host.probes[0],'sig-a');request(host,host.probes[1],'sig-b');request(host,host.probes[2],'sig-d');
  let release;const pending=new Promise(resolve=>{release=resolve});const execute=contents.executeJavaScript;
  contents.executeJavaScript=code=>code.includes('.snapshot()')?pending:execute(code);
  const stopping=host.stop();await assert.rejects(host.runTest(),/先完成/);

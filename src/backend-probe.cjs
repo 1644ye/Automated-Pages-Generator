@@ -11,7 +11,7 @@ class BackendProbe {
   this.contents=contents;this.onStatus=onStatus;this.key='__apgProbe_'+randomUUID().replaceAll('-','');
   const nonce=randomUUID().replaceAll('-','').slice(0,16);
   const make=(label,id)=>{const marker='APG_DIRECT_'+label+'_'+nonce;return {id,marker,prompt:'请严格只回复这一行文字，不要添加解释、引号或代码块：\n'+marker}};
-  this.probes=[make('ONE','probe-1'),make('TWO','probe-2')];this.test=make('THREE','probe-3');
+  this.probes=[make('ONE','probe-1'),make('TWO','probe-2'),make('THREE','probe-3')];this.test=make('FOUR','probe-4');
   this.network=new Map();this.signatures=new Map();this.phase='idle';this.attached=false;this.polling=false;this.stopping=false;this.epoch=0;
   this.onMessage=(_event,method,params)=>{if(method==='Network.requestWillBeSent')this.observe(params)};
   this.onDetach=()=>{this.attached=false;if(!this.stopping)this.invalidate('网页调试连接已断开，请停止测试后重新开始。')};
@@ -21,14 +21,14 @@ class BackendProbe {
   if(this.phase!=='idle')throw Error('后台校准已启动');
   if(new URL(this.contents.getURL()).origin!=='https://www.doubao.com')throw Error('请先在右侧打开并登录豆包网页');
   if(this.contents.debugger.isAttached())throw Error('网页调试器正在使用中，请先结束协议采集或关闭开发者工具');
-  this.phase='starting';this.startedAt=Date.now();this.deadline=this.startedAt+240000;
+  this.phase='starting';this.startedAt=Date.now();this.deadline=this.startedAt+300000;
   try {
    this.contents.debugger.attach('1.3');this.attached=true;
    this.contents.debugger.on('message',this.onMessage);this.contents.debugger.on('detach',this.onDetach);
    this.contents.on('did-start-navigation',this.onNavigation);
    await bounded(this.contents.debugger.sendCommand('Network.enable'),5000);
    if(this.stopping||this.phase!=='starting')throw Error('校准启动已中断');
-   const config={key:this.key,probes:this.probes,test:this.test,durationMs:180000};
+   const config={key:this.key,probes:this.probes,test:this.test,durationMs:240000};
    const installation=this.contents.executeJavaScript(`(${installFetchProbe.toString()})(${JSON.stringify(config)},${createAnswerRuntime.toString()})`);
    installation.then(()=>{if(this.stopping||this.phase==='blocked')this.disposePage().catch(()=>{})},()=>{});
    const page=await bounded(installation,5000);
@@ -58,29 +58,28 @@ class BackendProbe {
  }
  async poll() {
   if(this.polling||this.stopping||this.phase!=='active')return;
-  if(Date.now()>this.deadline){this.invalidate('已达到4分钟测试上限，未自动重试。请结束并保存。');await this.disposePage();return}
+  if(Date.now()>this.deadline){this.invalidate('已达到5分钟测试上限，未自动重试。请结束并保存。');await this.disposePage();return}
   const epoch=this.epoch;this.polling=true;try{const page=await this.invoke('snapshot');if(this.stopping||epoch!==this.epoch)return;this.page=page;this.onStatus(this.snapshot())}finally{this.polling=false}
  }
  async runTest() {
-  if(this.stopping||this.phase!=='active'||this.page?.phase!=='ready')throw Error('请先完成两轮手动校准并确认状态已就绪');
+  if(this.stopping||this.phase!=='active'||this.page?.phase!=='ready')throw Error('请先完成三轮手动校准并确认状态已就绪');
   if(this.testStarted)throw Error('本次后台测试已经发起，不会重复发送');
-  const a=this.network.get('probe-1'),b=this.network.get('probe-2');
-  if(!a||!b||a.requests!==1||b.requests!==1||!a.signaturePresent||!b.signaturePresent||this.signatures.get('probe-1')===this.signatures.get('probe-2'))throw Error('尚未观察到两次唯一请求及不同的网页签名；未发送后台测试');
+  if(this.probes.some(p=>{const r=this.network.get(p.id);return !r||r.requests!==1||!r.signaturePresent})||new Set(this.probes.map(p=>this.signatures.get(p.id))).size!==this.probes.length)throw Error('尚未观察到每轮唯一请求及不同的网页签名；未发送后台测试');
   this.testStarted=true;const epoch=this.epoch;let page;
   try{page=await this.invoke('test')}catch{this.invalidate('后台调用未能确认状态，可能已经发送；不会自动重试，请结束并保存报告。');throw Error('后台调用状态无法确认，不会再次发送')}
   if(this.stopping||epoch!==this.epoch)throw Error('后台测试已停止，不会再次发送');this.page=page;this.onStatus(this.snapshot());return this.snapshot();
  }
  signatureResult() {
-  const test=this.network.get('probe-3');if(!test)return 'not-observed';
+  const test=this.network.get(this.test.id);if(!test)return 'not-observed';
   if(test.requests!==1)return 'duplicate';if(!test.signaturePresent)return 'missing';
-  const value=this.signatures.get('probe-3');return value!==this.signatures.get('probe-1')&&value!==this.signatures.get('probe-2')?'fresh':'reused';
+  const value=this.signatures.get(this.test.id);return this.probes.every(p=>value!==this.signatures.get(p.id))?'fresh':'reused';
  }
  snapshot() {
   const signature=this.signatureResult();const page=this.page||{};
   return {phase:this.phase==='active'?page.phase||'observing':this.phase,reason:this.reason||page.reason||'',deadline:this.deadline,
    probes:this.probes.map(p=>({id:p.id,prompt:p.prompt,...(page.probes||[]).find(v=>v.id===p.id)})),
    requestShapeReady:!!page.requestShapeReady,preSignInput:page.preSignInput===true,
-   test:page.test||{sent:false,complete:false,exact:false},network:[...this.network.values()],signature,
+   cursorEvidence:page.cursorEvidence||null,test:page.test||{sent:false,complete:false,exact:false},network:[...this.network.values()],signature,
    verified:this.phase==='active'&&page.phase==='passed'&&page.test?.complete===true&&page.test?.exact===true&&signature==='fresh'&&this.probes.every(p=>this.network.get(p.id)?.requests===1),
    queueEnabled:false};
  }

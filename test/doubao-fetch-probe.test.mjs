@@ -15,9 +15,9 @@ const key='__apg_probe_synthetic_0123456789';
 const makeProbe=(id,label)=>{const marker='APG_PROBE_'+label+'_0123456789abcdef';return {id,marker,prompt:'请严格只回复这一行文字，不要添加解释、引号或代码块：\n'+marker}};
 const config={key,probes:[makeProbe('probe-1','ONE'),makeProbe('probe-2','TWO')],test:makeProbe('probe-3','THREE'),durationMs:180000};
 const uid=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
-function body(number,patch={}){
+function body(number,patch={},probeConfig=config){
  const initial=number===1;
- const value={client_meta:{conversation_id:initial?'':'synthetic-conversation',bot_id:'synthetic-bot',last_section_id:initial?'':'synthetic-section',last_message_index:initial?null:1},messages:[{local_message_id:uid(number*3),content_block:[{block_id:uid(number*3+1),block_type:10000,content:{text_block:{text:config.probes[number-1].prompt}}}]}],option:{need_create_conversation:initial,unique_key:uid(number*3+2),create_time_ms:Date.now(),start_seq:0,recovery_option:{req_create_time_sec:0}}};
+ const value={client_meta:{conversation_id:initial?'':'synthetic-conversation',bot_id:'synthetic-bot',last_section_id:initial?'':'synthetic-section',last_message_index:initial?null:1},messages:[{local_message_id:uid(number*3),content_block:[{block_id:uid(number*3+1),block_type:10000,content:{text_block:{text:probeConfig.probes[number-1].prompt}}}]}],option:{need_create_conversation:initial,unique_key:uid(number*3+2),create_time_ms:Date.now(),start_seq:0,recovery_option:{req_create_time_sec:0}}};
  return Object.assign(value,patch);
 }
 function sse(request,number,change){
@@ -40,7 +40,7 @@ function sse(request,number,change){
  change?.(events,number);
  return events.map(([event,value])=>'event: '+event+'\ndata: '+JSON.stringify(value)+'\n\n').join('');
 }
-function setup({change,status=()=>200,reject=()=>false}={}){
+function setup({change,status=()=>200,reject=()=>false,probeConfig=config}={}){
  const calls=[],timers=new Map();let timerId=0,uuidSeq=100;
  const original=function(input,init){
   const n=calls.length+1;calls.push({input,init});
@@ -50,11 +50,11 @@ function setup({change,status=()=>200,reject=()=>false}={}){
   return Promise.resolve(new Response(data,{status:status(n),headers:{'content-type':'text/event-stream; charset=utf-8'}}));
  };
  const window={fetch:original,location:{origin:'https://www.doubao.com',href:'https://www.doubao.com/chat/'}};
- const sandbox={window,URL,Headers,Response,Request,ReadableStream,TextDecoder,TextEncoder,Uint8Array,AbortController,crypto:{randomUUID:()=>uid(uuidSeq++)},setTimeout(fn,ms){const id=++timerId;timers.set(id,{fn,ms});return id},clearTimeout(id){timers.delete(id)},config};
+ const sandbox={window,URL,Headers,Response,Request,ReadableStream,TextDecoder,TextEncoder,Uint8Array,AbortController,crypto:{randomUUID:()=>uid(uuidSeq++)},setTimeout(fn,ms){const id=++timerId;timers.set(id,{fn,ms});return id},clearTimeout(id){timers.delete(id)},config:probeConfig};
  const initial=runInNewContext('('+installFetchProbe.toString()+')(config,('+createAnswerRuntime.toString()+'))',sandbox);
  const api=window[key];
  const plain=()=>JSON.parse(JSON.stringify(api.snapshot()));
- async function send(n,{request=body(n),url=endpoint,headers={'content-type':'application/json','x-synthetic-secret':'not-for-report'}}={}){const response=await window.fetch(url,{method:'POST',headers,body:JSON.stringify(request)});await response.text();for(let i=0;i<20&&['observing','testing'].includes(plain().phase);i++){if(n===1&&plain().probes[0].complete)break;await nextTurn()}return plain()}
+ async function send(n,{request=body(n,{},probeConfig),url=endpoint,headers={'content-type':'application/json','x-synthetic-secret':'not-for-report'}}={}){const response=await window.fetch(url,{method:'POST',headers,body:JSON.stringify(request)});await response.text();for(let i=0;i<20&&['observing','testing'].includes(plain().phase);i++){if(n===1&&plain().probes[0].complete)break;await nextTurn()}return plain()}
  async function settle(){for(let i=0;i<20&&plain().phase==='testing';i++)await nextTurn();return plain()}
  return {api,window,original,initial,calls,timers,plain,send,settle};
 }
@@ -133,4 +133,23 @@ test('a test timeout aborts its request and cannot later become a passing result
  const app=setup();await app.send(1);await app.send(2);app.api.test();const signal=app.calls[2].init.signal;
  const deadline=[...app.timers.values()].find(t=>t.ms===60000);assert.ok(deadline);deadline.fn();await nextTurn();
  assert.equal(app.plain().phase,'blocked');assert.equal(signal.aborted,true);assert.equal(app.calls.length,3);assert.equal(app.plain().test.complete,false);assert.equal(app.window.fetch,app.original);
+});
+
+const triple={...config,probes:[...config.probes,makeProbe('probe-3','THREE')],test:makeProbe('probe-4','FOUR')};
+async function calibrateThree(cursors){
+ const app=setup({probeConfig:triple});await app.send(1);
+ for(let n=2;n<=3;n++){const request=body(n,{},triple);request.client_meta.last_message_index=cursors[n-2];await app.send(n,{request});if(n===2)assert.equal(app.plain().phase,'observing')}
+ return app;
+}
+test('three manual rounds learn a constant request cursor without changing it',async()=>{
+ const app=await calibrateThree([0,0]);assert.equal(app.plain().phase,'ready');assert.equal(app.calls.length,3);
+ assert.equal(app.plain().cursorEvidence.next,0);app.api.test();assert.equal((await app.settle()).phase,'passed');
+ assert.equal(JSON.parse(app.calls[3].init.body).client_meta.last_message_index,0);assert.equal(app.calls.length,4);app.api.dispose();
+});
+test('cursor offset is accepted only after both observed transitions agree',async()=>{
+ const app=await calibrateThree([8,10]);assert.equal(app.plain().phase,'ready');assert.equal(app.plain().cursorEvidence.next,12);
+ app.api.test();assert.equal((await app.settle()).phase,'passed');assert.equal(JSON.parse(app.calls[3].init.body).client_meta.last_message_index,12);app.api.dispose();
+});
+test('inconsistent cursor transitions remain blocked with numeric evidence and no test send',async()=>{
+ const app=await calibrateThree([8,11]);assert.equal(app.plain().phase,'blocked');assert.deepEqual(app.plain().cursorEvidence.rows.map(r=>r.request),[null,8,11]);assert.equal(app.calls.length,3);assert.throws(()=>app.api.test());app.api.dispose();
 });

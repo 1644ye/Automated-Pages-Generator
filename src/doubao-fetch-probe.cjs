@@ -11,17 +11,17 @@ function installFetchProbe(config, createAnswerRuntime) {
  const probes=config?.probes;
  const testProbe=config?.test;
  const validProbe=p=>p&&typeof p.id==='string'&&/^[a-z0-9-]{1,32}$/.test(p.id)&&typeof p.marker==='string'&&/^APG_[A-Za-z0-9_]{12,120}$/.test(p.marker)&&p.prompt==='请严格只回复这一行文字，不要添加解释、引号或代码块：\n'+p.marker;
- if(typeof key!=='string'||key.length<16||key.length>128||!/^[A-Za-z_$][\w$]+$/.test(key)||Object.prototype.hasOwnProperty.call(window,key)||!Array.isArray(probes)||probes.length!==2||!probes.every(validProbe)||!validProbe(testProbe)||new Set([...probes,testProbe].map(p=>p.marker)).size!==3)throw Error('无效的后台测试配置');
+ if(typeof key!=='string'||key.length<16||key.length>128||!/^[A-Za-z_$][\w$]+$/.test(key)||Object.prototype.hasOwnProperty.call(window,key)||!Array.isArray(probes)||![2,3].includes(probes.length)||!probes.every(validProbe)||!validProbe(testProbe)||new Set([...probes,testProbe].map(p=>p.marker)).size!==probes.length+1)throw Error('无效的后台测试配置');
  if(window.location.origin!=='https://www.doubao.com'||typeof window.fetch!=='function')throw Error('请先打开并登录豆包网页');
  const {AnswerStream}=createAnswerRuntime();
  const originals=probes.map(p=>copy(p));const testConfig=copy(testProbe);
  const originalFetch=window.fetch;
- const state={phase:'observing',reason:'请依次手动发送两条校准消息。',probes:originals.map(p=>({id:p.id,seen:false,httpStatus:null,complete:false,exact:false,parserError:'',frames:0,bytes:0,signals:{}})),requestShapeReady:false,preSignInput:null,test:{sent:false,httpStatus:null,complete:false,exact:false,parserError:'',frames:0,bytes:0,signals:{}},deadline:Date.now()+Math.min(180000,Math.max(1000,config.durationMs||180000))};
- let templates=[null,null],answers=[null,null],active=-1,disposed=false,timer,controller=null;
+ const state={phase:'observing',reason:'请依次手动发送校准消息。',probes:originals.map(p=>({id:p.id,seen:false,httpStatus:null,complete:false,exact:false,parserError:'',frames:0,bytes:0,signals:{}})),requestShapeReady:false,preSignInput:null,test:{sent:false,httpStatus:null,complete:false,exact:false,parserError:'',frames:0,bytes:0,signals:{}},deadline:Date.now()+Math.min(240000,Math.max(1000,config.durationMs||180000))};
+ let templates=originals.map(()=>null),answers=originals.map(()=>null),active=-1,disposed=false,timer,controller=null;
  const readers=new Set();
  const stable=value=>JSON.stringify(value,(_,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
  const snapshot=()=>copy(state);
- function clearMemory(){templates=[null,null];answers=[null,null];for(const reader of readers)try{Promise.resolve(reader.cancel()).catch(()=>{})}catch{}readers.clear();if(controller)controller.abort();controller=null;clearTimeout(timer);if(window.fetch===wrappedFetch)window.fetch=originalFetch;}
+ function clearMemory(){templates=originals.map(()=>null);answers=originals.map(()=>null);for(const reader of readers)try{Promise.resolve(reader.cancel()).catch(()=>{})}catch{}readers.clear();if(controller)controller.abort();controller=null;clearTimeout(timer);if(window.fetch===wrappedFetch)window.fetch=originalFetch;}
  function block(reason){if(disposed||state.phase==='passed'||state.phase==='blocked')return;state.phase='blocked';state.reason=reason;state.requestShapeReady=false;clearMemory();}
  function arm(ms,reason){clearTimeout(timer);timer=setTimeout(()=>block(reason),ms);}
  function isActive(){return !disposed&&!['passed','blocked','disposed'].includes(state.phase);}
@@ -42,7 +42,7 @@ function installFetchProbe(config, createAnswerRuntime) {
   let body,info;try{body=JSON.parse(init.body);info=bodyInfo(body)}catch{block('网页对话请求结构尚未适配；未发送后台测试');return null}
   const index=originals.findIndex(p=>p.prompt===info.text);
   if(index<0){block('校准期间出现其他对话请求；请结束后重新准备');return null}
-  if(active!==-1||state.probes[index].seen||index!==state.probes.filter(p=>p.complete).length){block('两条校准消息须依次发送并等待完整回答，不能重发或并行');return null}
+  if(active!==-1||state.probes[index].seen||index!==state.probes.filter(p=>p.complete).length){block('校准消息须依次发送并等待完整回答，不能重发或并行');return null}
   const headers=new Headers(init.headers);
   const hasProtectedHeader=[...headers.keys()].some(name=>/authorization|cookie|signature/i.test(name));
   const signed=[...url.searchParams.keys()].some(name=>name.toLowerCase()==='a_bogus');
@@ -53,14 +53,25 @@ function installFetchProbe(config, createAnswerRuntime) {
   state.preSignInput=state.preSignInput===false?false:candidate.preSign;
   return {index,info,body};
  }
- function indexMapping(secondBody,firstAnswer,secondAnswer){
-  const value=secondBody.client_meta.last_message_index;
-  if(!Number.isSafeInteger(value)||value<0)throw Error('会话消息序号格式尚未适配');
-  const choices=['questionMessageIndex','answerMessageIndex'].filter(k=>Number.isSafeInteger(firstAnswer.binding?.[k])&&firstAnswer.binding[k]===value);
-  if(!choices.length)throw Error('无法确认上一条消息序号的映射；未猜测序号增量');
-  const next=choices.map(k=>secondAnswer.binding?.[k]);
-  if(next.some(n=>!Number.isSafeInteger(n)||n<0)||new Set(next).size!==1)throw Error('消息序号映射不唯一；未发送后台测试');
-  return next[0];
+ function indexMapping(){
+  const boundedIndex=v=>Number.isSafeInteger(v)&&v>=0&&v<=1000000;
+  const rows=templates.map((t,i)=>({request:boundedIndex(t?.body.client_meta.last_message_index)?t.body.client_meta.last_message_index:null,
+   question:boundedIndex(answers[i]?.binding.questionMessageIndex)?answers[i].binding.questionMessageIndex:null,
+   answer:boundedIndex(answers[i]?.binding.answerMessageIndex)?answers[i].binding.answerMessageIndex:null}));
+  state.cursorEvidence={rows,candidates:[],next:null};
+  const transitions=rows.slice(1);if(transitions.some(r=>r.request===null))throw Error('会话消息序号格式尚未适配');
+  const predictions=[];
+  for(const source of ['question','answer']){
+   if(rows.some(r=>r[source]===null))continue;
+   const offsets=transitions.map((r,i)=>r.request-rows[i][source]);
+   if(new Set(offsets).size!==1||(transitions.length<2&&offsets[0]!==0))continue;
+   const next=rows.at(-1)[source]+offsets[0];if(!boundedIndex(next))continue;
+   state.cursorEvidence.candidates.push({source,offset:offsets[0],next});predictions.push(next);
+  }
+  if(transitions.length>=2&&new Set(transitions.map(r=>r.request)).size===1){const next=transitions[0].request;state.cursorEvidence.candidates.push({source:'constant',next});predictions.push(next)}
+  if(!predictions.length)throw Error('无法确认上一条消息序号的映射；未猜测序号增量');
+  if(new Set(predictions).size!==1)throw Error('消息序号映射不唯一；未发送后台测试');
+  state.cursorEvidence.next=predictions[0];return predictions[0];
  }
  function uniqueRelation(body){
   const value=body.option.unique_key;
@@ -70,25 +81,30 @@ function installFetchProbe(config, createAnswerRuntime) {
   return 'independent';
  }
  function buildTestRequest(){
-  const [a,b]=templates,[ra,rb]=answers;
-  if(!a||!b||!ra?.complete||!rb?.complete)throw Error('两轮校准尚未完成');
-  if(!a.preSign||!b.preSign)throw Error('网页 fetch 输入已带签名或受保护请求头；不能重放旧签名');
+  const a=templates[0],b=templates.at(-1),ra=answers[0],rb=answers.at(-1);
+  if(!a||!b||!ra?.complete||!rb?.complete)throw Error('所有轮次校准尚未完成');
+  if(templates.some(t=>!t?.preSign))throw Error('网页 fetch 输入已带签名或受保护请求头；不能重放旧签名');
   if(window.fetch!==wrappedFetch)throw Error('网页请求函数已变化，请重新准备');
   if(a.body.option.need_create_conversation!==true||b.body.option.need_create_conversation!==false)throw Error('请从新建普通会话开始，随后在同一会话发送第二条');
-  if(!rb.binding?.conversationId||ra.binding?.conversationId!==rb.binding.conversationId||b.body.client_meta.conversation_id!==ra.binding.conversationId||b.body.client_meta.last_section_id!==ra.binding.sectionId||!rb.binding.sectionId||a.body.client_meta.bot_id!==b.body.client_meta.bot_id)throw Error('两轮会话或分区绑定不一致');
-  if(stable(ra.profile)!==stable(rb.profile))throw Error('两轮返回的补丁或结束控制组合不同，尚未适配');
-  for(const t of [a,b])if(!Number.isSafeInteger(t.body.option.create_time_ms)||Math.abs(t.body.option.create_time_ms-t.at)>60000)throw Error('请求时间字段未能通过现场校验');
-  if(!Number.isSafeInteger(a.body.option.start_seq)||a.body.option.start_seq!==b.body.option.start_seq)throw Error('流起始序号发生变化，尚未适配');
-  if(a.body.messages[0].local_message_id===b.body.messages[0].local_message_id||a.body.messages[0].content_block[0].block_id===b.body.messages[0].content_block[0].block_id||a.body.option.unique_key===b.body.option.unique_key)throw Error('两轮请求复用了唯一标识，不能安全构造测试');
-  const relation=uniqueRelation(a.body);if(relation!==uniqueRelation(b.body))throw Error('请求唯一标识关联发生变化');
-  const recovery=[a,b].map(t=>t.body.option.recovery_option?.req_create_time_sec);
+  if(!rb.binding?.conversationId||ra.binding?.conversationId!==rb.binding.conversationId||b.body.client_meta.conversation_id!==ra.binding.conversationId||b.body.client_meta.last_section_id!==ra.binding.sectionId||!rb.binding.sectionId||a.body.client_meta.bot_id!==b.body.client_meta.bot_id)throw Error('所有轮次会话或分区绑定不一致');
+  for(let i=1;i<templates.length;i++){
+   const t=templates[i],prev=answers[i-1];
+   if(t.body.option.need_create_conversation!==false||t.body.client_meta.conversation_id!==prev.binding.conversationId||t.body.client_meta.last_section_id!==prev.binding.sectionId||answers[i].binding.conversationId!==prev.binding.conversationId||t.body.client_meta.bot_id!==a.body.client_meta.bot_id)throw Error('所有轮次会话或分区绑定不一致');
+  }
+  for(const get of [t=>t.body.messages[0].local_message_id,t=>t.body.messages[0].content_block[0].block_id,t=>t.body.option.unique_key])if(new Set(templates.map(get)).size!==templates.length)throw Error('所有轮次请求复用了唯一标识，不能安全构造测试');
+  if(answers.some(r=>!r?.complete||stable(r.profile)!==stable(ra.profile)))throw Error('所有轮次返回的补丁或结束控制组合不同，尚未适配');
+  for(const t of templates)if(!Number.isSafeInteger(t.body.option.create_time_ms)||Math.abs(t.body.option.create_time_ms-t.at)>60000)throw Error('请求时间字段未能通过现场校验');
+  if(!Number.isSafeInteger(a.body.option.start_seq)||templates.some(t=>t.body.option.start_seq!==a.body.option.start_seq))throw Error('流起始序号发生变化，尚未适配');
+  if(a.body.messages[0].local_message_id===b.body.messages[0].local_message_id||a.body.messages[0].content_block[0].block_id===b.body.messages[0].content_block[0].block_id||a.body.option.unique_key===b.body.option.unique_key)throw Error('所有轮次请求复用了唯一标识，不能安全构造测试');
+  const relation=uniqueRelation(a.body);if(templates.some(t=>relation!==uniqueRelation(t.body)))throw Error('请求唯一标识关联发生变化');
+  const recovery=templates.map(t=>t.body.option.recovery_option?.req_create_time_sec);
   let refreshRecovery=false;
   if(recovery.some(v=>v!==0)){
-   if(![a,b].every((t,i)=>Number.isSafeInteger(recovery[i])&&Math.abs(recovery[i]*1000-t.at)<=60000))throw Error('恢复时间字段尚未适配');
+   if(!templates.every((t,i)=>Number.isSafeInteger(recovery[i])&&Math.abs(recovery[i]*1000-t.at)<=60000))throw Error('恢复时间字段尚未适配');
    refreshRecovery=true;
   }
   const body=copy(b.body),message=body.messages[0],blockValue=message.content_block[0];
-  body.client_meta.last_message_index=indexMapping(b.body,ra,rb);body.client_meta.last_section_id=rb.binding.sectionId;
+  body.client_meta.last_message_index=indexMapping();body.client_meta.last_section_id=rb.binding.sectionId;
   message.local_message_id=crypto.randomUUID();blockValue.block_id=crypto.randomUUID();
   body.option.unique_key=relation==='message'?message.local_message_id:relation==='block'?blockValue.block_id:crypto.randomUUID();
   body.option.create_time_ms=Date.now();if(refreshRecovery)body.option.recovery_option.req_create_time_sec=Math.floor(Date.now()/1000);
@@ -121,9 +137,9 @@ function installFetchProbe(config, createAnswerRuntime) {
    const cloned=response.clone();
    const result=await readResponse(cloned,originals[index],observed.body,null,state.probes[index]);
    if(!isActive()||!result)return;answers[index]=result;active=-1;
-   if(index===1){buildTestRequest();state.phase='ready';state.requestShapeReady=true;state.reason='两轮解析校准通过，可以尝试一次后台测试。'}
-   else state.reason='第一条校准通过，请在同一会话手动发送第二条。';
-  }catch(error){block(error?.message&&['对话请求未返回 HTTP 200，请手动检查登录、验证码或额度','返回不是 SSE 对话流，请手动检查网页状态','网页响应不可流式读取','回答绑定、正文分片或协议控制校验失败','回答未完整匹配本次校准标记或缺少整轮结束信号','两轮校准尚未完成','网页 fetch 输入已带签名或受保护请求头；不能重放旧签名','网页请求函数已变化，请重新准备','请从新建普通会话开始，随后在同一会话发送第二条','两轮会话或分区绑定不一致','两轮返回的补丁或结束控制组合不同，尚未适配','请求时间字段未能通过现场校验','流起始序号发生变化，尚未适配','两轮请求复用了唯一标识，不能安全构造测试','请求唯一标识不是已适配的 UUID','请求唯一标识关联发生变化','恢复时间字段尚未适配','会话消息序号格式尚未适配','无法确认上一条消息序号的映射；未猜测序号增量','消息序号映射不唯一；未发送后台测试'].includes(error.message)?error.message:'响应读取失败，未发送后台测试')}
+   if(index===originals.length-1){buildTestRequest();state.phase='ready';state.requestShapeReady=true;state.reason='所有轮次解析校准通过，可以尝试一次后台测试。'}
+   else state.reason='本条校准通过，请在同一会话手动发送下一条。';
+  }catch(error){block(error?.message&&['对话请求未返回 HTTP 200，请手动检查登录、验证码或额度','返回不是 SSE 对话流，请手动检查网页状态','网页响应不可流式读取','回答绑定、正文分片或协议控制校验失败','回答未完整匹配本次校准标记或缺少整轮结束信号','所有轮次校准尚未完成','网页 fetch 输入已带签名或受保护请求头；不能重放旧签名','网页请求函数已变化，请重新准备','请从新建普通会话开始，随后在同一会话发送第二条','所有轮次会话或分区绑定不一致','所有轮次返回的补丁或结束控制组合不同，尚未适配','请求时间字段未能通过现场校验','流起始序号发生变化，尚未适配','所有轮次请求复用了唯一标识，不能安全构造测试','请求唯一标识不是已适配的 UUID','请求唯一标识关联发生变化','恢复时间字段尚未适配','会话消息序号格式尚未适配','无法确认上一条消息序号的映射；未猜测序号增量','消息序号映射不唯一；未发送后台测试'].includes(error.message)?error.message:'响应读取失败，未发送后台测试')}
  }
  function wrappedFetch(...args){
   let observed=null;

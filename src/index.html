@@ -4,12 +4,13 @@
 <main><p id="notice">正在载入本地工作区…</p>
 <section><h2>后台对话 · 单次连接测试</h2><p id="backendStatus" role="status"></p>
 <p>已根据两轮真实响应实现消息绑定和完整回答解析。此测试检查当前网页能否自行生成新签名，随后在后台发送一条校准消息；业务队列仍保持暂停。</p>
-<ol><li>在右侧登录并新建普通测试会话，点击「开始后台校准」。</li><li>依次复制并手动发送测试1、测试2；每条都等回答结束，保持同一会话。</li><li>出现「可以测试」后点击「测试一次后台调用」。这一步无需操作右侧输入框。</li><li>结束后点击「结束并保存报告」。将报告路径发给开发者。</li></ol>
+<ol><li>在右侧登录并新建普通测试会话，点击「开始后台校准」。</li><li>依次复制并手动发送测试1、测试2、测试3；每条都等回答结束，保持同一会话。</li><li>出现「可以测试」后点击「测试一次后台调用」。这一步无需操作右侧输入框。</li><li>结束后点击「结束并保存报告」。将报告路径发给开发者。</li></ol>
 <button id="startBackend">开始后台校准</button><button id="testBackend" disabled>测试一次后台调用</button><button id="stopBackend" disabled>结束并保存报告</button>
 <div class="probe-row"><button id="copyBackend1" disabled>复制测试1</button><span id="backendProbe1"></span></div>
 <div class="probe-row"><button id="copyBackend2" disabled>复制测试2</button><span id="backendProbe2"></span></div>
+<div class="probe-row"><button id="copyBackend3" disabled>复制测试3</button><span id="backendProbe3"></span></div>
 <p id="backendTest"></p><p id="backendPath"></p>
-<p class="hint">手动校准最多3分钟，后台测试最多60秒。请求模板仅在当前网页内存中使用，关闭或刷新后清除。遇到签名不可复用、登录、验证、额度或结构变化会停止，不自动重试。请不要同时发送其他消息或切换会话。</p></section>
+<p class="hint">手动校准最多4分钟，后台测试最多60秒。请求模板仅在当前网页内存中使用，关闭或刷新后清除。遇到签名不可复用、登录、验证、额度或结构变化会停止，不自动重试。请不要同时发送其他消息或切换会话。</p></section>
 <section id="connection"><details><summary>进阶诊断 · 原协议采集与网页模式</summary><p id="connectionStatus"></p>
 <p>已确认真实对话端点。现在需要确认字段、事件顺序与两轮消息的关联；此步骤不会自动发送任务。</p>
 <ol><li>在右侧完成登录，新建一个普通测试会话，点击「开始校准」。</li><li>点击「复制测试1」，在右侧手动粘贴发送，等待回答结束。</li><li>在同一会话中发送「复制测试2」的内容，等待回答结束，再「结束并导出」。</li></ol>
