@@ -1,6 +1,6 @@
 const {app,BrowserWindow,WebContentsView,ipcMain,Menu,shell}=require('electron');
-const {join}=require('node:path');const fs=require('node:fs/promises');const {randomUUID}=require('node:crypto');const {BrowserDriver,keys}=require('./browser.cjs');
-let win,view,driver,state,dir,core,running=false,closing=false,saveChain=Promise.resolve();
+const {join}=require('node:path');const fs=require('node:fs/promises');const {randomUUID}=require('node:crypto');const {BrowserDriver,keys}=require('./browser.cjs');const {Navigation}=require('./navigation.cjs');
+let win,view,driver,navigation,state,dir,core,running=false,closing=false,saveChain=Promise.resolve();
 const send=()=>{if(win&&!win.isDestroyed())win.webContents.send('state',{...state,paths:core.paths(),dataDir:dir})};
 function save(){const snapshot=JSON.stringify(state);const operation=saveChain.catch(()=>{}).then(async()=>{await fs.writeFile(join(dir,'state.tmp'),snapshot);await fs.rename(join(dir,'state.tmp'),join(dir,'state.json'));send()});saveChain=operation;return operation}
 function bounds(){if(!win||!view)return;const [w,h]=win.getContentSize();view.setBounds({x:Math.floor(w*.57),y:52,width:w-Math.floor(w*.57),height:h-52})}
@@ -16,15 +16,15 @@ app.whenReady().then(async()=>{core=await import('../shared/core.mjs');dir=app.g
  view=new WebContentsView({webPreferences:{partition:'persist:doubao',contextIsolation:true,nodeIntegration:false,sandbox:true}});win.contentView.addChildView(view);bounds();win.on('resize',bounds);driver=new BrowserDriver(view,state.rules,send);
  const allowed=url=>{try{const u=new URL(url);return u.protocol==='https:'&&(u.hostname==='doubao.com'||u.hostname.endsWith('.doubao.com'))}catch{return false}};
  view.webContents.on('will-navigate',(e,url)=>{if(!allowed(url)){e.preventDefault();state.browserError='外部链接请在系统浏览器打开；未自动跳转：'+url;send()}});view.webContents.setWindowOpenHandler(({url})=>{if(allowed(url))view.webContents.loadURL(url).catch(()=>{});return {action:'deny'}});view.webContents.session.setPermissionRequestHandler((_w,_p,cb)=>cb(false));
- view.webContents.on('did-fail-load',(_e,code,desc)=>{state.browserError=`浏览器加载失败 ${code} ${desc}`;send()});view.webContents.on('did-finish-load',()=>{state.browserError='';send()});
+ navigation=new Navigation(view.webContents,patch=>{Object.assign(state,patch);send()});
  view.webContents.on('context-menu',(_event,p)=>{Menu.buildFromTemplate(keys.map(key=>({label:'标定 '+key,click:async()=>{try{const selector=await view.webContents.executeJavaScript(`(()=>{let e=document.elementFromPoint(${p.x},${p.y});let parts=[];while(e&&e!==document.documentElement){if(e.id){parts.unshift('#'+CSS.escape(e.id));break}let s=e.tagName.toLowerCase();const attrs=['data-testid','data-message-id','data-role','role','aria-label'];let found=false;for(const a of attrs){if(e.getAttribute(a)){s+='['+a+'='+JSON.stringify(e.getAttribute(a))+']';found=true;break}}if(!found){const siblings=[...e.parentElement.children].filter(x=>x.tagName===e.tagName);if(siblings.length>1)s+=':nth-of-type('+(siblings.indexOf(e)+1)+')'}parts.unshift(s);e=e.parentElement}return parts.join(' > ')})()`);state.rules[key]=selector;driver.rules=state.rules;await save()}catch(error){state.browserError=error.message;send()}}}))).popup({window:win})});
- win.webContents.setWindowOpenHandler(()=>({action:'deny'}));await win.loadFile(join(__dirname,'index.html'));await view.webContents.loadURL('https://www.doubao.com/chat/').catch(()=>{});send();setInterval(tick,700).unref();
+ win.webContents.setWindowOpenHandler(()=>({action:'deny'}));await win.loadFile(join(__dirname,'index.html'));send();setInterval(tick,700).unref();navigation.open();
 });
 ipcMain.handle('command',async(event,name,value)=>{if(event.sender!==win?.webContents)throw Error('无权限');
  if(name==='state'){send();return}
  if(name==='rules'){if(state.tasks.some(t=>t.status==='生成中'))throw Error('请先暂停任务');const rules=JSON.parse(value);for(const [key,s]of Object.entries(rules))if(!keys.includes(key)||typeof s!=='string'||s.length>2000)throw Error('无效规则');state.rules=rules;driver.rules=rules;await save();return}
  if(name==='check'){await driver.ready(value);return '定位规则检查通过；并非真实生成验证'}
- if(name==='reload'){await view.webContents.loadURL('https://www.doubao.com/chat/');return}
+ if(name==='reload'){view.setVisible(true);bounds();return navigation.open()}
  if(name==='add'){const input=value.input;if(!input.refTitle?.trim()||!input.refBody?.trim()||!(Number(input.discount)>0&&Number(input.discount)<=100))throw Error('请填写参考标题、内容和1–100折扣');const selected=value.selected||[];if(selected.length&&!value.base)throw Error('单字段/选中字段生成需先载入完整结果');if(selected.some(p=>!core.paths().includes(p)))throw Error('无效字段');if(selected.length)core.validateAll(value.base);const t={id:randomUUID(),input,prompt:value.prompt,network:!!value.network,selected,base:value.base||null,status:'待处理',raw:''};t.request=core.makePrompt(t);if(t.request.length>110000)throw Error('任务输入超过110000字符');state.tasks.push(t);await save();return t.id}
  if(name==='pause'){state.paused=true;await save();return}
  if(name==='resume'){await driver.ready(false,true);for(const t of state.tasks.filter(t=>t.status==='待人工处理')){if(t.track){t.status='生成中';t.started=Date.now()}else if(t.content)t.status='待导出';else t.status='待处理';delete t.error}state.paused=false;await save();return}
