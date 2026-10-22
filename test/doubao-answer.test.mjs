@@ -165,3 +165,24 @@ test('trailing comments and heartbeat are harmless, but post-HTTP data invalidat
  assert.equal(stream.finish().complete, true); assert.equal(stream.finish().complete, true);
  assert.equal(stream.feed('unexpected').complete, false); assert.match(stream.snapshot().error, /HTTP 结束后/);
 });
+
+
+test('empty operation directly before message finish is calibrated without adding text', () => {
+ const values=events();values[11][1].patch_op[0].patch_value={};
+ const result=run(values);assert.equal(result.complete,true);assert.equal(result.text,expected);
+ assert.deepEqual(result.profile.tuples.emptyFinish,[[7,8]]);
+ assert.equal(run(values,{...options,patchProfile:result.profile}).complete,true);
+ assert.equal(run(values,{...options,patchProfile:calibrated.profile}).complete,false);
+});
+
+test('empty patch alone or before body completion cannot be mistaken for completion', () => {
+ const values=events();values[4][1].patch_op[0].patch_value={};const result=run(values);
+ assert.equal(result.complete,false);assert.equal(result.patchDiagnostic.keyCount,0);
+ const missing=events();missing[11][1].patch_op=[patch({})];assert.equal(run(missing).complete,false);
+});
+
+test('unsupported patch diagnostic exposes bounded shape, never unknown keys or payload', () => {
+ const values=events();values[4][1].patch_op[0].patch_value={'private-customer-key':'private-value'};
+ const result=run(values);assert.equal(result.complete,false);assert.equal(result.patchDiagnostic.otherFieldCount,1);
+ assert.ok(!JSON.stringify(result.patchDiagnostic).includes('private'));assert.deepEqual(result.patchDiagnostic.knownFields,[]);
+});

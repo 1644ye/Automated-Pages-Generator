@@ -9,7 +9,7 @@ function createAnswerRuntime() {
  const index = value => Number.isSafeInteger(value) && value >= 0;
  const control = value => Number.isSafeInteger(value) && Math.abs(value) <= 65535;
  const copy = value => JSON.parse(JSON.stringify(value));
- const categories = ['initial', 'text', 'finish', 'meta', 'tts', 'messageEnd', 'answerEnd', 'terminalEnd'];
+ const categories = ['initial', 'text', 'finish', 'meta', 'tts', 'emptyFinish', 'messageEnd', 'answerEnd', 'terminalEnd'];
  const emptyProfile = () => ({version: 1, tuples: Object.fromEntries(categories.map(key => [key, []]))});
  const validProfile = value => object(value) && value.version === 1 && object(value.tuples)
   && categories.every(key => Array.isArray(value.tuples[key]) && value.tuples[key].length <= 64
@@ -23,7 +23,7 @@ function createAnswerRuntime() {
    this.encoder = new TextEncoder();
    this.lineBuffer = ''; this.event = ''; this.data = []; this.frameBytes = 0;
    this.bytes = 0; this.textBytes = 0; this.text = ''; this.frames = 0;
-   this.error = ''; this.ended = false; this.complete = false; this.echo = false;
+   this.patchDiagnostic = null; this.error = ''; this.ended = false; this.complete = false; this.echo = false;
    this.blockFinished = false; this.messageFinished = false;
    this.messageEnd = false; this.answerEnd = false; this.terminalEnd = false;
    this.binding = {conversationId: '', sectionId: '', questionId: '', answerId: '', questionMessageIndex: null, answerMessageIndex: null, lastMessageIndex: null};
@@ -129,11 +129,25 @@ function createAnswerRuntime() {
    if (event === 'STREAM_CHUNK') {
     if (!this.binding.answerId || value.message_id !== this.binding.answerId
      || !Array.isArray(value.patch_op) || !value.patch_op.length || value.patch_op.length > 64) return this.fail('结构化片段不属于当前回答');
-    for (const patch of value.patch_op) {
+    for (const [patchIndex, patch] of value.patch_op.entries()) {
      if (this.error) return;
      if (!object(patch) || !object(patch.patch_value)) return this.fail('结构化片段格式变化');
      const body = patch.patch_value, keys = Object.keys(body);
-     if (keys.length !== 1 || !['content_block', 'ext', 'tts_content'].includes(keys[0])) return this.fail('出现未支持的结构化操作');
+     const next = value.patch_op[patchIndex + 1]?.patch_value;
+     // A payload-free operation may precede the actual message-finish metadata.
+     // It neither appends text nor counts as a completion signal.
+     if (keys.length === 0 && this.blockFinished && !this.messageFinished && !this.messageEnd
+      && object(next) && Object.keys(next).length === 1 && next.ext?.is_finish === '1') {
+      if (!this.tuple('emptyFinish', [patch.patch_object, patch.patch_type])) return;
+      continue;
+     }
+     if (keys.length !== 1 || !['content_block', 'ext', 'tts_content'].includes(keys[0])) {
+      const knownFields = keys.filter(key => ['content_block', 'ext', 'tts_content'].includes(key));
+      this.patchDiagnostic = {patchIndex, keyCount: keys.length, knownFields, otherFieldCount: keys.length - knownFields.length,
+       patchObject: control(patch.patch_object) ? patch.patch_object : null,
+       patchType: control(patch.patch_type) ? patch.patch_type : null, blockFinished: this.blockFinished};
+      return this.fail('出现未支持的结构化操作');
+     }
      if (own(body, 'content_block')) {
       if (!Array.isArray(body.content_block) || body.content_block.length !== 1) return this.fail('回答存在额外内容块，已暂停');
       this.block(body.content_block[0], false, patch);
@@ -237,7 +251,7 @@ function createAnswerRuntime() {
   }
   snapshot() {
    return {text: this.text, complete: this.complete, error: this.error, ended: this.ended,
-    binding: {...this.binding}, profile: copy(this.profile), frames: this.frames, bytes: this.bytes,
+    patchDiagnostic: this.patchDiagnostic ? copy(this.patchDiagnostic) : null, binding: {...this.binding}, profile: copy(this.profile), frames: this.frames, bytes: this.bytes,
     signals: {echo: this.echo, blockFinished: this.blockFinished, messageFinished: this.messageFinished,
      messageEnd: this.messageEnd, answerEnd: this.answerEnd, terminalEnd: this.terminalEnd}};
   }

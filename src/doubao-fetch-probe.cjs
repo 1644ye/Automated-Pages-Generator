@@ -101,7 +101,7 @@ function installFetchProbe(config, createAnswerRuntime) {
   if(!/^text\/event-stream(?:\s*;|$)/i.test(response.headers.get('content-type')||''))throw Error('返回不是 SSE 对话流，请手动检查网页状态');
   if(!response.body?.getReader)throw Error('网页响应不可流式读取');
   const parser=new AnswerStream({localMessageId:body.messages[0].local_message_id,conversationId:body.client_meta.conversation_id,botId:body.client_meta.bot_id,prompt:expected.prompt,expectedText:expected.marker,...(profile?{patchProfile:profile}:{})});
-  const progress=()=>{const value=parser.snapshot();record.parserError=value.error;record.frames=value.frames;record.bytes=value.bytes;record.profile=copy(value.profile);record.signals=Object.fromEntries(['echo','blockFinished','messageFinished','messageEnd','answerEnd','terminalEnd'].map(name=>[name,!!value.signals?.[name]]));return value};
+  const progress=()=>{const value=parser.snapshot();record.parserError=value.error;record.frames=value.frames;record.bytes=value.bytes;record.profile=copy(value.profile);record.patchDiagnostic=value.patchDiagnostic;record.signals=Object.fromEntries(['echo','blockFinished','messageFinished','messageEnd','answerEnd','terminalEnd'].map(name=>[name,!!value.signals?.[name]]));return value};
   const reader=response.body.getReader();readers.add(reader);
   try{
    while(isActive()){
