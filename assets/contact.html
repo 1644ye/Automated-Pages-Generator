@@ -1,0 +1,20 @@
+<style>
+.wp-block-heading{margin:1.5em 0 1em;font-size:1.8em;font-weight:700}.wp-block-columns{display:flex;flex-wrap:wrap;gap:2.5em;margin:2em 0}.wp-block-column{flex:1;min-width:280px}.wp-block-paragraph{margin:0 0 1.2em;font-size:1em}strong{font-weight:700}.contact-form{background:#f9f9f9;padding:1.8em;border-radius:8px}.contact-form label{display:block;margin-bottom:.5em;font-weight:600;font-size:.95em}.contact-form input,.contact-form textarea{width:100%;box-sizing:border-box;padding:.8em;margin-bottom:1.2em;border:1px solid #ddd;border-radius:4px;font-size:.95em}.contact-form input:focus,.contact-form textarea:focus{outline:none;border-color:#666}.contact-form textarea{resize:vertical;min-height:120px}.contact-form button{background:#333;color:#fff;border:none;padding:.9em 1.8em;border-radius:4px;cursor:pointer;font-size:1em;transition:background .3s}.contact-form button:hover{background:#555}.required{color:red}
+</style>
+<div class="wp-block-columns"><div class="wp-block-column">
+<h2 class="razzi-icon-box__title"><span>Call to Us:</span></h2>
+<p class="wp-block-paragraph">We’re available from 10 am – 10 pm EST,<br>7 days a week.</p>
+<h2 class="razzi-icon-box__title"><span>Write to Us:</span></h2>
+<p class="wp-block-paragraph">Fill out our form and we will contact you within 24 hours.</p>
+<h2 class="razzi-icon-box__title"><span>Find Us:</span></h2>
+<p class="wp-block-paragraph">Want to visit our Offline Stores?</p>
+<p class="wp-block-paragraph">If you have any questions, comments, or concerns, please feel free to reach out to us at the following:</p>
+<p class="wp-block-paragraph">We strive to respond to all inquiries as quickly as possible. Whether you need help with a product, have a question about our services, or just want to share your feedback, we are here to listen.</p>
+</div><div class="wp-block-column"><form class="contact-form" action="/" onsubmit="return redirectToHome(event)">
+<p><label for="your-name">Your Name <span class="required">*</span></label><input required name="your-name" id="your-name" type="text"></p>
+<p><label for="your-email">Your Email <span class="required">*</span></label><input required name="your-email" id="your-email" type="email"></p>
+<p><label for="your-subject">Subject</label><input name="your-subject" id="your-subject" type="text"></p>
+<p><label for="your-message">Your Message <span class="required">*</span></label><textarea required name="your-message" id="your-message"></textarea></p>
+<p><button type="submit">Send Message</button></p>
+</form></div></div>
+<script>function redirectToHome(e){e.preventDefault();window.location.href='/';return false;}</script>

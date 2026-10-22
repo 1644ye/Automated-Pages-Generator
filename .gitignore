@@ -1,0 +1,12 @@
+node_modules/
+build/
+*.zip
+*.log
+.env*
+!.env.example
+user-data/
+profiles/
+exports/
+*.pem
+*.key
+.cache/
