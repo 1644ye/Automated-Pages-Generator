@@ -166,3 +166,33 @@ test('server rejection of the observed-cursor experiment stops without retries',
  assert.equal(app.plain().phase,'ready');app.api.test();assert.equal((await app.settle()).phase,'blocked');
  assert.equal(app.calls.length,4);assert.equal(app.plain().test.httpStatus,409);assert.throws(()=>app.api.test());app.api.dispose();
 });
+
+test('business bridge binds full text, serializes calls, prevents resend and keeps reports text-free',async()=>{
+ const app=setup({probeConfig:{...config,enableBusiness:true}});
+ await app.send(1);await app.send(2);app.api.test();await app.settle();
+ const prompt='business prompt\n'+JSON.stringify({fields:{'marketing.hero.title':'PRIVATE new title'}});
+ app.api.startTask({id:'business-1',prompt});
+ assert.throws(()=>app.api.startTask({id:'business-2',prompt}));
+ for(let i=0;i<20&&!app.api.taskSnapshot('business-1').complete;i++)await nextTurn();
+ const r=app.api.taskSnapshot('business-1');assert.equal(r.complete,true);assert.equal(r.text,prompt.split('\n').at(-1));
+ assert.doesNotMatch(JSON.stringify(app.plain()),/PRIVATE|business prompt/);
+ app.api.releaseTask('business-1');assert.throws(()=>app.api.startTask({id:'business-1',prompt}),/重复/);
+ app.api.startTask({id:'business-2',prompt:prompt+'2'});
+ for(let i=0;i<20&&!app.api.taskSnapshot('business-2').complete;i++)await nextTurn();
+ assert.equal(app.api.taskSnapshot('business-2').complete,true);assert.equal(app.calls.length,5);
+ assert.notEqual(JSON.parse(app.calls[3].init.body).messages[0].local_message_id,JSON.parse(app.calls[4].init.body).messages[0].local_message_id);
+ app.api.dispose();assert.equal(app.window.fetch,app.original);
+});
+
+test('business HTTP failure and cancellation invalidate the connection without retries',async()=>{
+ for(const cancel of [false,true]){
+  const app=setup({probeConfig:{...config,enableBusiness:true},status:n=>n===4?429:200});
+  await app.send(1);await app.send(2);app.api.test();await app.settle();
+  app.api.startTask({id:'business-1',prompt:'Private business material'});
+  if(cancel)app.api.cancelTask('business-1');
+  for(let i=0;i<20&&app.plain().phase!=='blocked';i++)await nextTurn();
+  assert.equal(app.plain().phase,'blocked');assert.ok(app.api.taskSnapshot('business-1').error);
+  assert.throws(()=>app.api.startTask({id:'business-2',prompt:'retry'}));assert.ok(app.calls.length<=4);
+  assert.doesNotMatch(JSON.stringify(app.plain()),/Private business material/);app.api.dispose();
+ }
+});

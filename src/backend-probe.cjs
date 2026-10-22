@@ -28,7 +28,7 @@ class BackendProbe {
    this.contents.on('did-start-navigation',this.onNavigation);
    await bounded(this.contents.debugger.sendCommand('Network.enable'),5000);
    if(this.stopping||this.phase!=='starting')throw Error('校准启动已中断');
-   const config={key:this.key,probes:this.probes,test:this.test,durationMs:240000};
+   const config={key:this.key,probes:this.probes,test:this.test,durationMs:240000,enableBusiness:true};
    const installation=this.contents.executeJavaScript(`(${installFetchProbe.toString()})(${JSON.stringify(config)},${createAnswerRuntime.toString()})`);
    installation.then(()=>{if(this.stopping||this.phase==='blocked')this.disposePage().catch(()=>{})},()=>{});
    const page=await bounded(installation,5000);
@@ -44,22 +44,22 @@ class BackendProbe {
   if(r.method!=='POST'||url.origin!=='https://www.doubao.com'||url.pathname!=='/chat/completion')return;
   // getRequestPostData is intentionally not used: an unbound request must not
   // become evidence for a test merely because it happened nearby in time.
-  let body;try{if(typeof r.postData!=='string'||r.postData.length>200000)return;body=JSON.parse(r.postData)}catch{return}
+  let body;try{if(typeof r.postData!=='string'||r.postData.length>600000)return;body=JSON.parse(r.postData)}catch{return}
   const text=body?.messages?.length===1&&body.messages[0]?.content_block?.length===1?body.messages[0].content_block[0]?.content?.text_block?.text:null;
-  const p=[...this.probes,this.test].find(p=>p.prompt===text);if(!p)return;
+  const p=[...this.probes,this.test,...(this.operation?[this.operation]:[])].find(p=>p.prompt===text);if(!p)return;
   const prior=this.network.get(p.id);const signature=url.searchParams.get('a_bogus')||'';
   this.network.set(p.id,{id:p.id,requests:(prior?.requests||0)+1,signaturePresent:!!signature});
   this.signatures.set(p.id,signature);
  }
  invalidate(reason){if(this.stopping)return;this.epoch++;this.phase='blocked';this.reason=reason;clearInterval(this.timer);this.disposePage().catch(()=>{});this.onStatus(this.snapshot())}
- async invoke(method) {
+ async invoke(method,value) {
   if(!this.attached||this.contents.isDestroyed())throw Error('网页连接已失效');
-  return bounded(this.contents.executeJavaScript(`(()=>{const p=window[${JSON.stringify(this.key)}];if(!p)throw Error('Calibration expired');return p.${method}()})()`),5000);
+  return bounded(this.contents.executeJavaScript(`(()=>{const p=window[${JSON.stringify(this.key)}];if(!p)throw Error('Calibration expired');return p.${method}(${JSON.stringify(value)??''})})()`),5000);
  }
  async poll() {
   if(this.polling||this.stopping||this.phase!=='active')return;
-  if(Date.now()>this.deadline){this.invalidate('已达到5分钟测试上限，未自动重试。请结束并保存。');await this.disposePage();return}
-  const epoch=this.epoch;this.polling=true;try{const page=await this.invoke('snapshot');if(this.stopping||epoch!==this.epoch)return;this.page=page;this.onStatus(this.snapshot())}finally{this.polling=false}
+  if(!this.businessVerified&&Date.now()>this.deadline){this.invalidate('已达到5分钟测试上限，未自动重试。请结束并保存。');await this.disposePage();return}
+  const epoch=this.epoch;this.polling=true;try{const page=await this.invoke('snapshot');if(this.stopping||epoch!==this.epoch)return;this.page=page;if(this.snapshot().verified)this.businessVerified=true;this.onStatus(this.snapshot())}finally{this.polling=false}
  }
  async runTest() {
   if(this.stopping||this.phase!=='active'||this.page?.phase!=='ready')throw Error('请先完成三轮手动校准并确认状态已就绪');
@@ -80,16 +80,37 @@ class BackendProbe {
    probes:this.probes.map(p=>({id:p.id,prompt:p.prompt,...(page.probes||[]).find(v=>v.id===p.id)})),
    requestShapeReady:!!page.requestShapeReady,preSignInput:page.preSignInput===true,
    cursorEvidence:page.cursorEvidence||null,test:page.test||{sent:false,complete:false,exact:false},network:[...this.network.values()],signature,
-   verified:this.phase==='active'&&page.phase==='passed'&&page.test?.complete===true&&page.test?.exact===true&&signature==='fresh'&&this.probes.every(p=>this.network.get(p.id)?.requests===1),
-   queueEnabled:false};
+   verified:this.phase==='active'&&['passed','generating'].includes(page.phase)&&page.test?.complete===true&&page.test?.exact===true&&signature==='fresh'&&this.probes.every(p=>this.network.get(p.id)?.requests===1),
+   queueEnabled:!this.stopping&&this.phase==='active'&&signature==='fresh'&&this.probes.every(p=>this.network.get(p.id)?.requests===1)&&this.businessVerified===true&&['passed','generating'].includes(page.phase)};
  }
+
+ async startTask(id,prompt){
+  if(!this.snapshot().queueEnabled||this.stopping)throw Error('请先完成当前网页的后台连接测试');
+  if(this.operation)throw Error('上一条后台任务尚未确认');
+  this.operation={id,prompt};
+  try{await this.invoke('startTask',{id,prompt});return {session:this.key,id}}catch{this.invalidate('发送状态不明，可能已经发送；不会自动重发');throw Error(this.reason)}
+ }
+ async taskResult(track){
+  if(track?.session!==this.key||track.id!==this.operation?.id||this.stopping||this.phase!=='active')throw Error('原任务连接已失效；请取消此任务后重新创建，不会自动重发');
+  const result=await this.invoke('taskSnapshot',track.id);
+  if(result.error)throw Error(result.error);
+  if(result.complete){
+   const evidence=this.network.get(track.id),signature=this.signatures.get(track.id);
+   if(!evidence||evidence.requests!==1||!signature||[...this.signatures].some(([id,value])=>id!==track.id&&value===signature)){
+    this.invalidate('本次任务的新签名或唯一请求未确认，未导出');throw Error(this.reason);
+   }
+  }
+  return result;
+ }
+ async releaseTask(track){if(track?.session!==this.key)throw Error('任务连接失效');await this.invoke('releaseTask',track.id);this.operation=null}
+ async cancelTask(track){if(track?.session===this.key)await this.invoke('cancelTask',track.id);this.invalidate('任务已取消，请断开并重新校准')}
  async disposePage(){try{if(this.contents.isDestroyed())return true;await bounded(this.contents.executeJavaScript(`(()=>{window[${JSON.stringify(this.key)}]?.dispose();return true})()`),2000);return true}catch{return false}}
  async dispose() {
   if(this.disposePromise)return this.disposePromise;this.stopping=true;this.epoch++;clearInterval(this.timer);
   this.disposePromise=(async()=>{this.cleanupConfirmed=await this.disposePage();
   this.contents.removeListener('did-start-navigation',this.onNavigation);
   this.contents.debugger.removeListener('message',this.onMessage);this.contents.debugger.removeListener('detach',this.onDetach);
-  if(this.attached)try{this.contents.debugger.detach()}catch{}this.attached=false;this.signatures.clear();})();return this.disposePromise;
+  if(this.attached)try{this.contents.debugger.detach()}catch{}this.attached=false;this.signatures.clear();this.operation=null;})();return this.disposePromise;
  }
  async stop() {
   if(this.stopPromise)return this.stopPromise;this.stopping=true;this.epoch++;clearInterval(this.timer);

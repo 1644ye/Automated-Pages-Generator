@@ -2,10 +2,10 @@
 <html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src 'none'"><title>Automated Pages Generator</title><link rel="stylesheet" href="style.css"></head>
 <body><header><b>APG · 页面生成器</b><span>本地工作区 / 豆包 Chromium · <span id="appVersion"></span></span><button id="reload">重新打开豆包</button></header>
 <main><p id="notice">正在载入本地工作区…</p>
-<section><h2>后台对话 · 单次连接测试</h2><p id="backendStatus" role="status"></p>
-<p>已根据两轮真实响应实现消息绑定和完整回答解析。此测试检查当前网页能否自行生成新签名，随后在后台发送一条校准消息；业务队列仍保持暂停。</p>
-<ol><li>在右侧登录并新建普通测试会话，点击「开始后台校准」。</li><li>依次复制并手动发送测试1、测试2、测试3；每条都等回答结束，保持同一会话。</li><li>出现「可以测试」后点击「测试一次后台调用」。这一步无需操作右侧输入框。</li><li>结束后点击「结束并保存报告」。将报告路径发给开发者。</li></ol>
-<button id="startBackend">开始后台校准</button><button id="testBackend" disabled>测试一次后台调用</button><button id="stopBackend" disabled>结束并保存报告</button>
+<section><h2>后台连接与任务生成</h2><p id="backendStatus" role="status"></p>
+<p>先校准当前登录会话并验证后台调用，再串行生成页面、标题和 SEO 字段。每条结果校验通过后自动导出 XLSX。</p>
+<ol><li>在右侧登录并新建普通测试会话，点击「开始后台校准」。</li><li>依次复制并手动发送测试1、测试2、测试3；每条都等回答结束，保持同一会话。</li><li>出现「可以测试」后点击「测试一次后台调用」。这一步无需操作右侧输入框。</li><li>测试通过后保持连接，在下方加入任务，点击「启动 / 继续后台队列」。用完后再断开。</li></ol>
+<button id="startBackend">开始后台校准</button><button id="testBackend" disabled>测试一次后台调用</button><button id="stopBackend" disabled>断开并保存报告</button>
 <div class="probe-row"><button id="copyBackend1" disabled>复制测试1</button><span id="backendProbe1"></span></div>
 <div class="probe-row"><button id="copyBackend2" disabled>复制测试2</button><span id="backendProbe2"></span></div>
 <div class="probe-row"><button id="copyBackend3" disabled>复制测试3</button><span id="backendProbe3"></span></div>
@@ -21,7 +21,7 @@
 <p class="hint">最多 180 秒，只采集已确认的对话接口。保留协议字段名、事件顺序、控制状态、ID 的本次别名和合成测试匹配信息；正文、查询值、请求头值、Cookie 与登录存储不写入诊断文件。队列保持暂停，采集不会点击、发送或重放请求。</p>
 <details><summary>原网页模式 · 定位诊断</summary><p id="legacyStatus"></p><button id="jumpRules">查看定位设置</button><button id="diagnostics">导出页面结构</button><p id="diagnosticPath"></p></details>
 </details></section>
-<section><h2>输入与任务</h2><div id="inputs"></div><label><input id="network" type="checkbox">要求联网搜索（需确认网页已启用）</label><details><summary>提示词编辑</summary><textarea id="prompt" rows="4">根据真实输入生成可导入 Shopify 的英文页面及首页与 SEO 文案。遵守现有字段结构和规则，不虚构事实。</textarea></details><details><summary>字段选择 · 不选则生成整条数据</summary><p>选中字段任务以当前结果编辑框为基准；未选字段原样保留。</p><div id="fields"></div></details><button id="add">加入串行队列</button><button id="resume">网页模式：检查并继续</button><button id="pause">暂停队列</button><p>后台测试尚未开放业务队列；联网和长正文仍待实测。原网页模式需完成定位适配后才能发送任务。暂停保留当前任务绑定，继续时不重发；取消后如网页仍在生成，请手动停止。</p></section>
+<section><h2>输入与任务</h2><div id="inputs"></div><label><input id="network" type="checkbox">要求联网搜索（后台尚未验证，勾选的任务会暂停且不发送）</label><details><summary>提示词编辑</summary><textarea id="prompt" rows="4">根据真实输入生成可导入 Shopify 的英文页面及首页与 SEO 文案。遵守现有字段结构和规则，不虚构事实。</textarea></details><details><summary>字段选择 · 不选则生成整条数据</summary><p>选中字段任务以当前结果编辑框为基准；未选字段原样保留。</p><div id="fields"></div></details><button id="add">加入串行队列</button><button id="resume">启动 / 继续后台队列</button><button id="pause">暂停队列</button><p>可连续加入多条任务，默认串行。暂停阻止下一条发送，当前回答保留在内存中，继续时不重发。取消当前请求后需重新校准；重启或刷新后不重发状态不明的任务。JSON 错误只自动修复一次，仍失败则不导出。长正文及连续批量调用需用户实测。</p></section>
 <section><h2>任务与流式结果</h2><div id="tasks"></div><pre id="stream"></pre></section>
 <section><h2>结果预览与编辑</h2><p>编辑完整 JSON 后保存；校验通过会导出新文件。HTML 以源码呈现，不执行。</p><textarea id="result" rows="13" spellcheck="false"></textarea><button id="save">保存编辑并导出</button><h3>导出记录</h3><div id="exports"></div><button id="openExports">打开导出目录</button></section>
 <details id="ruleSettings"><summary>网页定位规则与首次标定</summary><p>在右侧网页目标元素上右键选择标定。重复消息容器请手动将规则改为通用 CSS 选择器。body 和 done 相对于助手回答容器，其他相对于文档。必须标定 input/send/user/answer/body/done/stop/blocker；联网还需 search/searchEnabled。不要把通用页面容器当作回答。</p><p>done 应仅在该回答完整生成后出现；blocker 必须覆盖实际登录、验证码、额度异常提示；stop 为生成中的按钮。展开按钮可配置 expand。规则未确认前保持暂停。</p><textarea id="rules" rows="12" spellcheck="false"></textarea><button id="saveRules">保存规则</button><button id="check">检查当前规则</button></details><footer id="location"></footer></main><script src="ui.js"></script></body></html>

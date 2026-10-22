@@ -74,3 +74,20 @@ test('detaching aborts the page bridge and a late poll cannot revive it',async()
  assert.equal(host.snapshot().phase,'blocked');assert.ok(calls.at(-1).includes('.dispose()'));
  release({phase:'ready'});await polling;assert.equal(host.snapshot().phase,'blocked');await host.stop();
 });
+
+test('business result requires fresh single observed request and original session binding',async()=>{
+ for(const mode of ['fresh','reused','duplicate','missing']){
+  const {host,page,contents}=setup();await host.start();
+  host.probes.forEach((p,i)=>request(host,p,'manual-'+i));request(host,host.test,'test-signature');
+  page.phase='passed';page.test={sent:true,complete:true,exact:true};await host.poll();assert.equal(host.snapshot().queueEnabled,true);
+  const execute=contents.executeJavaScript;
+  contents.executeJavaScript=code=>code.includes('.taskSnapshot(')?Promise.resolve({text:'private business text',complete:true}):execute(code);
+  const track=await host.startTask('business-one','private unique task prompt');
+  if(mode!=='missing')request(host,host.operation,mode==='reused'?'test-signature':'business-signature');
+  if(mode==='duplicate')request(host,host.operation,'business-signature');
+  await assert.rejects(host.taskResult({...track,session:'old'}),/连接已失效/);
+  if(mode==='fresh'){assert.equal((await host.taskResult(track)).complete,true);await host.releaseTask(track)}else await assert.rejects(host.taskResult(track),/新签名/);
+  assert.doesNotMatch(JSON.stringify(host.snapshot()),/private unique|private business|business-signature/);
+  await host.stop();assert.equal(host.snapshot().queueEnabled,false);
+ }
+});

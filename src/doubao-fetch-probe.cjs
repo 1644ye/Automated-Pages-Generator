@@ -18,13 +18,14 @@ function installFetchProbe(config, createAnswerRuntime) {
  const originalFetch=window.fetch;
  const state={phase:'observing',reason:'请依次手动发送校准消息。',probes:originals.map(p=>({id:p.id,seen:false,httpStatus:null,complete:false,exact:false,parserError:'',frames:0,bytes:0,signals:{}})),requestShapeReady:false,preSignInput:null,test:{sent:false,httpStatus:null,complete:false,exact:false,parserError:'',frames:0,bytes:0,signals:{}},deadline:Date.now()+Math.min(240000,Math.max(1000,config.durationMs||180000))};
  let templates=originals.map(()=>null),answers=originals.map(()=>null),active=-1,disposed=false,timer,controller=null;
+ let verifiedRequest=null, business=null; const sentOperations=new Set();
  const readers=new Set();
  const stable=value=>JSON.stringify(value,(_,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
  const snapshot=()=>copy(state);
- function clearMemory(){templates=originals.map(()=>null);answers=originals.map(()=>null);for(const reader of readers)try{Promise.resolve(reader.cancel()).catch(()=>{})}catch{}readers.clear();if(controller)controller.abort();controller=null;clearTimeout(timer);if(window.fetch===wrappedFetch)window.fetch=originalFetch;}
- function block(reason){if(disposed||state.phase==='passed'||state.phase==='blocked')return;state.phase='blocked';state.reason=reason;state.requestShapeReady=false;clearMemory();}
+ function clearMemory(){verifiedRequest=null;if(business&&!business.complete)business.error="后台连接已中断，任务不会自动重发";templates=originals.map(()=>null);answers=originals.map(()=>null);for(const reader of readers)try{Promise.resolve(reader.cancel()).catch(()=>{})}catch{}readers.clear();if(controller)controller.abort();controller=null;clearTimeout(timer);if(window.fetch===wrappedFetch)window.fetch=originalFetch;}
+ function block(reason){if(disposed||(state.phase==='passed'&&!config.enableBusiness)||state.phase==='blocked')return;state.phase='blocked';state.reason=reason;state.requestShapeReady=false;clearMemory();}
  function arm(ms,reason){clearTimeout(timer);timer=setTimeout(()=>block(reason),ms);}
- function isActive(){return !disposed&&!['passed','blocked','disposed'].includes(state.phase);}
+ function isActive(){return !disposed&&!['blocked','disposed'].includes(state.phase)&&(state.phase!=='passed'||config.enableBusiness===true);}
  function bodyInfo(body){
   if(!body||typeof body!=='object'||!body.client_meta||!body.option||!Array.isArray(body.messages)||body.messages.length!==1)throw Error('请求结构不是单条普通对话');
   const msg=body.messages[0],blocks=msg.content_block;
@@ -125,7 +126,7 @@ function installFetchProbe(config, createAnswerRuntime) {
   if(!/^text\/event-stream(?:\s*;|$)/i.test(response.headers.get('content-type')||''))throw Error('返回不是 SSE 对话流，请手动检查网页状态');
   if(!response.body?.getReader)throw Error('网页响应不可流式读取');
   const parser=new AnswerStream({localMessageId:body.messages[0].local_message_id,conversationId:body.client_meta.conversation_id,botId:body.client_meta.bot_id,prompt:expected.prompt,expectedText:expected.marker,...(profile?{patchProfile:profile}:{})});
-  const progress=()=>{const value=parser.snapshot();record.parserError=value.error;record.frames=value.frames;record.bytes=value.bytes;record.profile=copy(value.profile);record.patchDiagnostic=value.patchDiagnostic;record.signals=Object.fromEntries(['echo','blockFinished','messageFinished','messageEnd','answerEnd','terminalEnd'].map(name=>[name,!!value.signals?.[name]]));return value};
+  const progress=()=>{const value=parser.snapshot();if(record===business)record.text=value.text;record.parserError=value.error;record.frames=value.frames;record.bytes=value.bytes;record.profile=copy(value.profile);record.patchDiagnostic=value.patchDiagnostic;record.signals=Object.fromEntries(['echo','blockFinished','messageFinished','messageEnd','answerEnd','terminalEnd'].map(name=>[name,!!value.signals?.[name]]));return value};
   const reader=response.body.getReader();readers.add(reader);
   try{
    while(isActive()){
@@ -133,7 +134,7 @@ function installFetchProbe(config, createAnswerRuntime) {
     if(done)break;parser.feed(value);if(progress().error)throw Error('回答绑定、正文分片或协议控制校验失败');
    }
    if(!isActive())return null;
-   parser.finish();const result=progress();record.exact=result.text===expected.marker;record.complete=!!result.complete;
+   parser.finish();const result=progress();record.exact=expected.marker===undefined||result.text===expected.marker;record.complete=!!result.complete;
    if(result.error||!result.complete||!record.exact)throw Error('回答未完整匹配本次校准标记或缺少整轮结束信号');
    return result;
   }finally{readers.delete(reader);try{Promise.resolve(reader.cancel()).catch(()=>{})}catch{}try{reader.releaseLock()}catch{}}
@@ -165,12 +166,37 @@ function installFetchProbe(config, createAnswerRuntime) {
   state.phase='testing';state.reason='正在执行一次后台测试，不会自动重试。';state.test.sent=true;controller=new AbortController();request.init.signal=controller.signal;state.deadline=Date.now()+60000;arm(60000,'后台测试超时，已停止读取；不会自动重发');
   let response;try{response=Reflect.apply(originalFetch,window,[request.url,request.init])}catch{block('后台测试发送失败；不会重试');return snapshot()}
   Promise.resolve(response).then(response=>readResponse(response,testConfig,request.body,request.profile,state.test)).then(result=>{
-   if(!isActive()||!result)return;state.phase='passed';state.reason='后台返回已通过完整回答校验，仍需主进程核对新签名。';clearMemory();
+   if(!isActive()||!result)return;state.phase='passed';state.reason='后台返回已通过完整回答校验，仍需主进程核对新签名。';if(config.enableBusiness){verifiedRequest=request;verifiedRequest.body.client_meta.last_section_id=result.binding.sectionId;clearTimeout(timer);controller=null}else clearMemory();
   }).catch(()=>block('后台测试失败，请手动检查登录、验证码、额度或协议兼容性；不会重试'));
   return snapshot();
  }
+
+ function startTask({id,prompt}={}){
+  if(!config.enableBusiness||disposed||state.phase!=='passed'||!verifiedRequest)throw Error('后台连接未就绪');
+  if(typeof id!=='string'||!/^[a-zA-Z0-9-]{1,100}$/.test(id)||typeof prompt!=='string'||!prompt.trim()||prompt.length>240000)throw Error('无效任务或提示词过长');
+  if(sentOperations.has(id))throw Error('此任务已经发送，不会重复提交');
+  if(business)throw Error('请先确认上一条结果');
+  if(sentOperations.size>=1000)throw Error('本连接已达1000次上限，请重新校准');
+  if(window.fetch!==wrappedFetch){block('网页请求函数变化，请重新校准');throw Error(state.reason)}
+  const request=verifiedRequest,body=copy(request.body),message=body.messages[0],blockValue=message.content_block[0],relation=uniqueRelation(body);
+  message.local_message_id=crypto.randomUUID();blockValue.block_id=crypto.randomUUID();
+  body.option.unique_key=relation==='message'?message.local_message_id:relation==='block'?blockValue.block_id:crypto.randomUUID();
+  body.option.create_time_ms=Date.now();if(body.option.recovery_option?.req_create_time_sec)body.option.recovery_option.req_create_time_sec=Math.floor(Date.now()/1000);
+  blockValue.content.text_block.text=prompt;
+  sentOperations.add(id);business={id,text:'',complete:false,error:''};const record=business;
+  controller=new AbortController();state.phase='generating';arm(900000,'任务超过15分钟，已停止；不会重发');
+  Promise.resolve().then(()=>Reflect.apply(originalFetch,window,[request.url,{...request.init,body:JSON.stringify(body),signal:controller.signal}])).then(response=>readResponse(response,{prompt},body,request.profile,record)).then(result=>{
+   if(!isActive()||!result||business!==record)return;
+   verifiedRequest.body.client_meta.last_section_id=result.binding.sectionId;
+   state.phase='passed';clearTimeout(timer);controller=null;
+  }).catch(()=>{if(business===record){record.complete=false;record.error='后台回答读取失败，请检查登录、验证码、额度或协议；不会自动重发';block(record.error)}});
+  return {id};
+ }
+ function taskSnapshot(id){if(!business||business.id!==id)throw Error('任务绑定已失效，不能自动重发');return copy(business)}
+ function releaseTask(id){if(!business||business.id!==id||!business.complete||business.error)throw Error('任务尚未成功结束');business=null;return true}
+ function cancelTask(id){if(business?.id===id){business.complete=false;business.error='任务已取消';block('当前请求已取消，请重新校准后继续剩余任务')}return true}
  function dispose(){if(disposed)return snapshot();disposed=true;state.phase='disposed';state.reason='后台测试已结束，内存请求模板已清理。';state.requestShapeReady=false;clearMemory();return snapshot()}
- Object.defineProperty(window,key,{value:Object.freeze({snapshot,test,dispose}),configurable:true,enumerable:false,writable:false});
+ Object.defineProperty(window,key,{value:Object.freeze({snapshot,test,dispose,startTask,taskSnapshot,releaseTask,cancelTask}),configurable:true,enumerable:false,writable:false});
  window.fetch=wrappedFetch;arm(Math.max(1,state.deadline-Date.now()),'准备超过时间上限，未继续发送；请重新准备');
  return snapshot();
 }
