@@ -1,9 +1,12 @@
 const {app,BrowserWindow,WebContentsView,ipcMain,Menu,shell,clipboard}=require('electron');
 const {join}=require('node:path');const fs=require('node:fs/promises');const {randomUUID}=require('node:crypto');const {BrowserDriver,keys}=require('./browser.cjs');const {Navigation}=require('./navigation.cjs');const {collectStructure}=require('./diagnostics.cjs');const {ProtocolCapture}=require('./protocol-capture.cjs');
-let win,view,driver,navigation,state,dir,core,capture,captureSaving,running=false,closing=false,saveChain=Promise.resolve();
+const {BackendProbe}=require('./backend-probe.cjs');
+let win,view,driver,navigation,state,dir,core,capture,captureSaving,backendProbe,backendSaving,running=false,checking=false,closing=false,saveChain=Promise.resolve();
+let backend={phase:'idle',reason:''};
 let protocol={phase:'idle',count:0,file:'',error:''};
-const captureActive=()=>!!capture||!!captureSaving||protocol.phase==='starting';
-const send=()=>{if(win&&!win.isDestroyed())win.webContents.send('state',{...state,protocol,version:app.getVersion(),paths:core.paths(),dataDir:dir,missingRules:['input','send','user','answer','body','done','stop','blocker'].filter(k=>!state.rules[k])})};
+const backendActive=()=>!!backendProbe||!!backendSaving||backend.phase==='starting';
+const captureActive=()=>!!capture||!!captureSaving||protocol.phase==='starting'||backendActive()||checking;
+const send=()=>{if(win&&!win.isDestroyed())win.webContents.send('state',{...state,protocol,backend,version:app.getVersion(),paths:core.paths(),dataDir:dir,missingRules:['input','send','user','answer','body','done','stop','blocker'].filter(k=>!state.rules[k])})};
 function save(){const snapshot=JSON.stringify(state);const operation=saveChain.catch(()=>{}).then(async()=>{await fs.writeFile(join(dir,'state.tmp'),snapshot);await fs.rename(join(dir,'state.tmp'),join(dir,'state.json'));send()});saveChain=operation;return operation}
 function bounds(){if(!win||!view)return;const [w,h]=win.getContentSize();view.setBounds({x:Math.floor(w*.57),y:52,width:w-Math.floor(w*.57),height:h-52})}
 async function pause(t,error){t.status='待人工处理';t.error=error.message;state.paused=true;await save()}
@@ -15,6 +18,11 @@ async function finish(t){const record=await core.exportXlsx(app.getAppPath(),joi
 async function finishCapture(reason='manual'){
  if(captureSaving)return captureSaving;if(!capture)throw Error('当前没有进行中的协议采集');if(capture.phase==='starting')throw Error('采集正在启动，请稍后再结束');const current=capture;
  captureSaving=(async()=>{try{const report=await current.stop(reason);const folder=join(dir,'diagnostics');await fs.mkdir(folder,{recursive:true});const file=join(folder,'doubao-protocol-'+Date.now()+'.json');await fs.writeFile(file,JSON.stringify({appVersion:app.getVersion(),...report},null,2),{flag:'wx'});protocol={phase:'saved',count:report.requests.length,file,error:'',reason:report.reason,probeResponses:['probe-1','probe-2'].map(id=>({id,requests:report.requests.filter(r=>r.probes?.includes(id)).map(r=>({id:r.id,httpEnded:r.httpEnded,failed:!!r.httpFailed}))}))};return file}catch(error){protocol={...protocol,phase:'failed',error:'协议诊断保存失败，请检查本地数据目录是否可写。'};throw error}finally{capture=null;captureSaving=null;send()}})();return captureSaving;
+}
+async function finishBackend(){
+ if(backendSaving)return backendSaving;if(!backendProbe)throw Error('当前没有后台测试');if(backend.phase==='starting')throw Error('正在启动，请稍后再结束');
+ const current=backendProbe;
+ backendSaving=(async()=>{try{const report=await current.stop();const folder=join(dir,'diagnostics');await fs.mkdir(folder,{recursive:true});const file=join(folder,'doubao-backend-'+Date.now()+'.json');await fs.writeFile(file,JSON.stringify({appVersion:app.getVersion(),...report},null,2),{flag:'wx'});backend={...report,phase:'saved',file};return file}catch{await current.dispose();backend={phase:'failed',reason:'后台测试报告保存失败，请检查本地数据目录。'};throw Error(backend.reason)}finally{backendProbe=null;backendSaving=null;send()}})();return backendSaving;
 }
 app.whenReady().then(async()=>{core=await import('../shared/core.mjs');dir=app.getPath('userData');await fs.mkdir(dir,{recursive:true});try{state=JSON.parse(await fs.readFile(join(dir,'state.json'),'utf8'))}catch(e){if(e.code!=='ENOENT')throw e;state={tasks:[],exports:[],rules:{},paused:true}}
  for(const t of state.tasks)if(['生成中','待导出'].includes(t.status)){t.status='待人工处理';t.error='程序已重启，任务未自动重发；请检查网页并恢复或取消。'}state.paused=true;
@@ -28,12 +36,20 @@ app.whenReady().then(async()=>{core=await import('../shared/core.mjs');dir=app.g
 });
 ipcMain.handle('command',async(event,name,value)=>{if(event.sender!==win?.webContents)throw Error('无权限');
  if(name==='state'){send();return}
+ if(name==='startBackend'){
+  if(captureActive())throw Error('请先结束当前校准或协议采集');if(running||state.tasks.some(t=>t.status==='生成中'))throw Error('请先完成或取消正在生成的任务');
+  state.paused=true;backend={phase:'starting',reason:''};
+  try{await save();backendProbe=new BackendProbe(view.webContents,{onStatus:s=>{backend=s;send()}});return await backendProbe.start()}catch(error){await backendProbe?.dispose();backendProbe=null;backend={phase:'failed',reason:error.message};send();throw error}
+ }
+ if(name==='copyBackendProbe'){if(!backendProbe||backend.phase!=='observing')throw Error('请先开始后台校准');const probe=backend.probes?.find(p=>p.id===value);if(!probe)throw Error('无效校准消息');clipboard.writeText(probe.prompt);return '已复制，请在右侧同一测试会话手动发送'}
+ if(name==='testBackend'){if(!backendProbe||backendSaving)throw Error('请先完成后台校准；保存期间不会发送');return backendProbe.runTest()}
+ if(name==='stopBackend')return finishBackend();
  if(name==='startProtocol'){if(captureActive())throw Error('请先结束当前协议采集');if(running||state.tasks.some(t=>t.status==='生成中'))throw Error('请先完成或取消正在生成的任务，再采集手动测试消息');state.paused=true;const nonce=randomUUID().replaceAll('-','').slice(0,16);const probes=['ONE','TWO'].map((label,i)=>{const marker='APG_PROBE_'+label+'_'+nonce;return {id:'probe-'+(i+1),marker,prompt:'请严格只回复这一行文字，不要添加解释、引号或代码块：\n'+marker}});protocol={phase:'starting',count:0,file:'',error:'',probes};try{await save();capture=new ProtocolCapture(view.webContents,{targeted:true,probes,durationMs:180000,maxRequests:4,onStatus:s=>{protocol={...protocol,...s};send()},onTimeout:reason=>{finishCapture(reason).catch(()=>{})}});await capture.start();return protocol}catch(error){capture=null;protocol={...protocol,phase:'failed',error:error.message};send();throw error}}
  if(name==='copyProbe'){if(protocol.phase!=='recording')throw Error('请先开始校准');const probe=protocol.probes?.find(p=>p.id===value);if(!probe)throw Error('无效测试消息');clipboard.writeText(probe.prompt);return '已复制测试消息，请在右侧手动粘贴发送'}
  if(name==='stopProtocol')return finishCapture();
  if(name==='rules'){if(state.tasks.some(t=>t.status==='生成中'))throw Error('请先暂停任务');const rules=JSON.parse(value);for(const [key,s]of Object.entries(rules))if(!keys.includes(key)||typeof s!=='string'||s.length>2000)throw Error('无效规则');state.rules=rules;driver.rules=rules;await save();return}
  if(name==='diagnostics'){const structure=await view.webContents.executeJavaScript('('+collectStructure.toString()+')()');const report={version:app.getVersion(),createdAt:new Date().toISOString(),rulesConfigured:Object.fromEntries(keys.map(k=>[k,!!state.rules[k]])),taskCounts:state.tasks.reduce((counts,t)=>(counts[t.status]=(counts[t.status]||0)+1,counts),{}),structure};const folder=join(dir,'diagnostics');await fs.mkdir(folder,{recursive:true});const file=join(folder,'doubao-structure-'+Date.now()+'.json');await fs.writeFile(file,JSON.stringify(report,null,2),{flag:'wx'});return file}
- if(name==='check'){await driver.ready(value);return '定位规则检查通过；并非真实生成验证'}
+ if(name==='check'){if(captureActive())throw Error('请先结束校准；期间不操作网页控件');checking=true;try{await driver.ready(value);return '定位规则检查通过；并非真实生成验证'}finally{checking=false}}
  if(name==='reload'){if(captureActive())throw Error('请先结束协议采集再重新打开豆包');view.setVisible(true);bounds();return navigation.open()}
  if(name==='add'){const input=value.input;if(!input.refTitle?.trim()||!input.refBody?.trim()||!(Number(input.discount)>0&&Number(input.discount)<=100))throw Error('请填写参考标题、内容和1–100折扣');const selected=value.selected||[];if(selected.length&&!value.base)throw Error('单字段/选中字段生成需先载入完整结果');if(selected.some(p=>!core.paths().includes(p)))throw Error('无效字段');if(selected.length)core.validateAll(value.base);const t={id:randomUUID(),input,prompt:value.prompt,network:!!value.network,selected,base:value.base||null,status:'待处理',raw:''};t.request=core.makePrompt(t);if(t.request.length>110000)throw Error('任务输入超过110000字符');state.tasks.push(t);await save();return t.id}
  if(name==='pause'){state.paused=true;await save();return}
@@ -43,4 +59,4 @@ ipcMain.handle('command',async(event,name,value)=>{if(event.sender!==win?.webCon
  if(name==='openExports'){await shell.openPath(join(dir,'exports'));return}
  throw Error('未知命令')});
 app.on('window-all-closed',()=>{closing=true;app.quit()});
-app.on('before-quit',event=>{if(capture&&capture.phase!=='starting'){event.preventDefault();closing=true;finishCapture('closing').catch(()=>{}).finally(()=>app.quit())}});
+app.on('before-quit',event=>{if(backendProbe&&backend.phase!=='starting'){event.preventDefault();closing=true;finishBackend().catch(()=>{}).finally(()=>app.quit())}else if(capture&&capture.phase!=='starting'){event.preventDefault();closing=true;finishCapture('closing').catch(()=>{}).finally(()=>app.quit())}});

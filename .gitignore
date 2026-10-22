@@ -14,3 +14,4 @@ diagnostics/
 *.har
 doubao-protocol-*.json
 doubao-structure-*.json
+doubao-backend-*.json

@@ -27,6 +27,12 @@ function setup({ready=async()=>{},write=async()=>{},start=async()=>{},paused=fal
   './navigation.cjs':{Navigation:class{}},
   './diagnostics.cjs':{collectStructure(){}},
   './protocol-capture.cjs':{ProtocolCapture},
+  './backend-probe.cjs':{BackendProbe:class {
+   constructor(_contents,options){this.options=options}
+   async start(){this.options.onStatus({phase:'observing',probes:[]});return {phase:'observing'}}
+   async stop(){return {verified:false,probes:[],test:{sent:false}}}
+   async dispose(){}
+  }},
  };
  // The extra accessor exists only in this VM, without changing production exports.
  const access=runInNewContext(mainSource+`\n;({seed(value){win=value.win;view=value.view;driver=value.driver;state=value.state;dir='synthetic-user-data';core={paths:()=>[]};navigation=value.navigation},tick,protocol:()=>protocol})`,{
@@ -69,4 +75,24 @@ test('calibration copies only an explicitly chosen synthetic probe and never sen
  await app.call('startProtocol');assert.equal(app.protocol().probes.length,2);assert.notEqual(app.protocol().probes[0].marker,app.protocol().probes[1].marker);assert.equal(app.counts.clipboard,0);
  await app.call('copyProbe','probe-1');await app.call('copyProbe','probe-2');await assert.rejects(app.call('copyProbe','untrusted-message'),/无效/);
  assert.equal(app.counts.clipboard,2);assert.equal(app.counts.send,0);assert.equal(app.counts.prepare,0);assert.equal(app.state.paused,true);
+});
+
+test('backend calibration blocks queue sends, legacy capture, reload and resume until stopped',async()=>{
+ const app=setup();await app.call('startBackend');await app.tick();
+ assert.equal(app.state.paused,true);assert.equal(app.state.tasks[0].status,'待处理');
+ for(const action of ['startProtocol','reload','resume','startBackend','check'])await assert.rejects(app.call(action));
+ assert.equal(app.counts.send,0);assert.equal(app.counts.prepare,0);assert.equal(app.counts.navigate,0);
+ await app.call('stopBackend');await app.call('startProtocol');
+ assert.equal(app.counts.capture,1);assert.equal(app.state.paused,true);
+});
+
+test('backend calibration cannot start while legacy capture is active',async()=>{
+ const app=setup();await app.call('startProtocol');await assert.rejects(app.call('startBackend'),/结束/);
+ assert.equal(app.counts.send,0);
+});
+
+test('a pending DOM rule check cannot overlap a new calibration',async()=>{
+ const gate=deferred(),app=setup({ready:()=>gate.promise});const check=app.call('check',true);
+ await assert.rejects(app.call('startBackend'));await assert.rejects(app.call('startProtocol'));
+ gate.resolve();await check;await app.call('startBackend');assert.equal(app.state.paused,true);
 });
