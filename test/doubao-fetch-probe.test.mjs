@@ -136,8 +136,8 @@ test('a test timeout aborts its request and cannot later become a passing result
 });
 
 const triple={...config,probes:[...config.probes,makeProbe('probe-3','THREE')],test:makeProbe('probe-4','FOUR')};
-async function calibrateThree(cursors){
- const app=setup({probeConfig:triple});await app.send(1);
+async function calibrateThree(cursors,extra={}){
+ const app=setup({probeConfig:triple,...extra});await app.send(1);
  for(let n=2;n<=3;n++){const request=body(n,{},triple);request.client_meta.last_message_index=cursors[n-2];await app.send(n,{request});if(n===2)assert.equal(app.plain().phase,'observing')}
  return app;
 }
@@ -150,6 +150,19 @@ test('cursor offset is accepted only after both observed transitions agree',asyn
  const app=await calibrateThree([8,10]);assert.equal(app.plain().phase,'ready');assert.equal(app.plain().cursorEvidence.next,12);
  app.api.test();assert.equal((await app.settle()).phase,'passed');assert.equal(JSON.parse(app.calls[3].init.body).client_meta.last_message_index,12);app.api.dispose();
 });
-test('inconsistent cursor transitions remain blocked with numeric evidence and no test send',async()=>{
- const app=await calibrateThree([8,11]);assert.equal(app.plain().phase,'blocked');assert.deepEqual(app.plain().cursorEvidence.rows.map(r=>r.request),[null,8,11]);assert.equal(app.calls.length,3);assert.throws(()=>app.api.test());app.api.dispose();
+function spacedIndices(events,n){const index=(n-1)*5+1;events[0][1].query_list[0].message_index=index;events[1][1].message.index_in_conv=index;events[2][1].meta.index_in_conv=index+1}
+test('nonlinear cursors allow only an explicit one-shot synthetic attempt with the observed value',async()=>{
+ const app=await calibrateThree([5,7],{change:spacedIndices});assert.equal(app.plain().phase,'ready');
+ assert.deepEqual(app.plain().cursorEvidence.rows.map(r=>r.request),[null,5,7]);
+ assert.equal(app.plain().cursorEvidence.mode,'observed-reuse-experiment');assert.equal(app.plain().cursorEvidence.next,7);
+ assert.equal(app.calls.length,3);app.api.test();assert.equal((await app.settle()).phase,'passed');
+ const sent=JSON.parse(app.calls[3].init.body);assert.equal(sent.client_meta.last_message_index,7);
+ assert.equal(sent.messages[0].content_block[0].content.text_block.text,triple.test.prompt);
+ assert.notEqual(sent.messages[0].local_message_id,uid(9));assert.throws(()=>app.api.test());assert.equal(app.calls.length,4);app.api.dispose();
+});
+test('server rejection of the observed-cursor experiment stops without retries',async()=>{
+ const app=setup({probeConfig:triple,change:spacedIndices,status:n=>n===4?409:200});await app.send(1);
+ for(let n=2;n<=3;n++){const request=body(n,{},triple);request.client_meta.last_message_index=n===2?5:7;await app.send(n,{request})}
+ assert.equal(app.plain().phase,'ready');app.api.test();assert.equal((await app.settle()).phase,'blocked');
+ assert.equal(app.calls.length,4);assert.equal(app.plain().test.httpStatus,409);assert.throws(()=>app.api.test());app.api.dispose();
 });

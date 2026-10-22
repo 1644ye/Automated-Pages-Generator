@@ -25,6 +25,7 @@ function renderBackend(s){
  const b=s.backend||{phase:'idle'},active=!['idle','saved','failed'].includes(b.phase),protocolBusy=['starting','recording','saving','stopped'].includes(s.protocol?.phase);
  const labels={idle:'待测试：请先在右侧登录豆包。',starting:'正在安装仅驻留内存的校准工具…',observing:'等待三轮手动校准，请依次发送并等待回答结束。',ready:'可以测试：手动校准通过，点击「测试一次后台调用」。',testing:'正在后台发送并读取一条测试消息，请勿重复发送。',passed:b.verified?'后台连接测试通过：回答精确匹配，已观察到新的请求签名。':'回答校准通过，但实际请求的新签名尚未验证。',blocked:'已停止：'+(b.reason||'校准条件未满足。'),saved:b.verified?'报告已保存：本次后台连接测试通过。':'报告已保存：本次后台连接尚未通过验证。',failed:b.reason||'测试启动失败。'};
  $('backendStatus').textContent=labels[b.phase]||b.reason||'';
+ if(b.phase==='ready'&&b.cursorEvidence?.mode==='observed-reuse-experiment')$('backendStatus').textContent='可以尝试一次：序号变化无法推导，将沿用最近一次成功请求的原始序号发送新的合成消息。服务器可能拒绝；点击后仅发送一次，失败不重试，业务队列保持暂停。';
  if(b.reason&&b.phase==='saved')$('backendStatus').textContent+=' '+b.reason;
  if(b.phase==='saved'&&b.cleanupConfirmed===false)$('backendStatus').textContent+=' 网页未及时确认清理，请关闭程序后再重新打开。';
  $('startBackend').disabled=active||protocolBusy;$('stopBackend').disabled=!active||b.phase==='starting';$('testBackend').disabled=b.phase!=='ready'||protocolBusy;

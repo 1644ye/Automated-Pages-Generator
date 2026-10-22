@@ -69,9 +69,17 @@ function installFetchProbe(config, createAnswerRuntime) {
    state.cursorEvidence.candidates.push({source,offset:offsets[0],next});predictions.push(next);
   }
   if(transitions.length>=2&&new Set(transitions.map(r=>r.request)).size===1){const next=transitions[0].request;state.cursorEvidence.candidates.push({source:'constant',next});predictions.push(next)}
-  if(!predictions.length)throw Error('无法确认上一条消息序号的映射；未猜测序号增量');
+  if(!predictions.length){
+   if(transitions.length<2)throw Error('无法确认上一条消息序号的映射；未猜测序号增量');
+   // This bridge can only send its fixed synthetic probe, never business data.
+   // Preserve the latest server-accepted request value instead of inventing an
+   // increment. It is an unverified compatibility attempt, not a cursor model.
+   state.cursorEvidence.mode='observed-reuse-experiment';
+   state.cursorEvidence.next=rows.at(-1).request;
+   return state.cursorEvidence.next;
+  }
   if(new Set(predictions).size!==1)throw Error('消息序号映射不唯一；未发送后台测试');
-  state.cursorEvidence.next=predictions[0];return predictions[0];
+  state.cursorEvidence.mode='validated-relation';state.cursorEvidence.next=predictions[0];return predictions[0];
  }
  function uniqueRelation(body){
   const value=body.option.unique_key;
