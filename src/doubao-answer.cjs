@@ -30,7 +30,6 @@ function createAnswerRuntime() {
    this.blockId = ''; this.brief = null; this.profile = emptyProfile();
    this.calibration = typeof options.expectedText === 'string';
    this.allowedProfile = options.patchProfile;
-   this.eventId = ''; this.seenEventIds = new Set();
    if (!id(options.localMessageId) || !id(options.botId) || typeof options.prompt !== 'string'
     || options.prompt.length > 110000 || (options.conversationId && !id(options.conversationId))) this.fail('请求绑定参数不完整');
    if (this.calibration && (!options.expectedText || options.expectedText.length > 256)) this.fail('校准标记无效');
@@ -174,14 +173,11 @@ function createAnswerRuntime() {
    if (!line) {
     if (this.data.length) {
      if (!this.event) return this.fail('响应缺少事件名称');
-     if (this.eventId) {
-      if (this.seenEventIds.has(this.eventId)) return this.fail('收到重复 SSE 事件');
-      if (this.seenEventIds.size >= 100000) return this.fail('响应事件标识数量超过限制');
-      this.seenEventIds.add(this.eventId);
-     }
+     // SSE id is a reconnection cursor, not a unique frame key. This
+     // transport never reconnects or replays; process every frame in order.
      this.receive(this.event, this.data.join('\n'));
     } else if (this.event) return this.fail('响应事件缺少数据');
-    this.event = ''; this.data = []; this.frameBytes = 0; this.eventId = ''; return;
+    this.event = ''; this.data = []; this.frameBytes = 0; return;
    }
    if (line.startsWith(':')) return;
    const colon = line.indexOf(':');
@@ -196,8 +192,8 @@ function createAnswerRuntime() {
     if (this.frameBytes > 2 * 1024 * 1024) return this.fail('单个响应事件超过限制');
     this.data.push(value);
    } else if (key === 'id') {
-    if (this.eventId || value.length > 256 || value.includes('\0')) return this.fail('SSE 事件标识格式变化');
-    this.eventId = value;
+    // IDs may repeat, be inherited or reset. No cursor is needed here.
+    if (value.length > 256) return this.fail('SSE 事件标识超过长度限制');
    } else if (key !== 'retry') return this.fail('出现未支持的 SSE 字段');
   }
   consume(text, final = false) {
@@ -232,7 +228,7 @@ function createAnswerRuntime() {
    this.ended = true;
    if (!this.error) {
     try { this.consume(this.decoder.decode(), true); } catch { this.fail('响应在 UTF-8 字符中途结束'); }
-    if (!this.error && (this.lineBuffer || this.event || this.data.length || this.eventId)) this.fail('响应在 SSE 事件中途结束');
+    if (!this.error && (this.lineBuffer || this.event || this.data.length)) this.fail('响应在 SSE 事件中途结束');
     if (!this.error && (!this.echo || !this.text || !this.blockFinished || !this.messageFinished || !this.messageEnd || !this.answerEnd || !this.terminalEnd)) this.fail('响应未包含完整的回答结束链路');
     if (!this.error && this.calibration && (this.text !== this.options.expectedText || this.brief !== this.options.expectedText)) this.fail('校准回答或摘要与预期标记不一致');
     this.complete = !this.error;

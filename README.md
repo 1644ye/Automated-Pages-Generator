@@ -2,15 +2,15 @@
 
 基于 Electron / Chromium 的 Windows 桌面工作区。保留 Shopify Page Studio 原有输入、七个生成页面 + 固定 Contact Us、字段规则和 Pages / Menus XLSX 导出。原项目保持独立。
 
-**0.1.5 是后台连接实验版，业务队列尚未接通后台接口。** 根据用户提供的真实协议实现了消息绑定和流式回答解析，并新增一次后台调用测试。测试只有在两轮手动校准通过、请求参数符合实测关系且入口未带旧签名时才允许发送。失败停止，不自动重试。
+**0.1.6 是后台连接实验版，业务队列尚未接通后台接口。** 根据用户提供的真实协议实现了消息绑定和流式回答解析，并新增一次后台调用测试。测试只有在两轮手动校准通过、请求参数符合实测关系且入口未带旧签名时才允许发送。失败停止，不自动重试。
 
 ## 安装与运行
 
-1. 关闭旧版，完整解压 `Automated-Pages-Generator-0.1.5-win32-x64-experimental.zip`。
-2. 运行解压目录中的 `Automated-Pages-Generator.exe`，确认左上角 `v0.1.5`。不要只复制 exe。
+1. 关闭旧版，完整解压 `Automated-Pages-Generator-0.1.6-win32-x64-experimental.zip`。
+2. 运行解压目录中的 `Automated-Pages-Generator.exe`，确认左上角 `v0.1.6`。不要只复制 exe。
 3. 无需 DSH、API Key 或单独安装浏览器。既有本地任务和登录分区继续使用，不删除数据。
 
-本地构建入口：`build/0.1.5/Automated-Pages-Generator-win32-x64/Automated-Pages-Generator.exe`。压缩包及 `SHA256SUMS.txt` 在 `build/`。Windows 可执行 `Get-FileHash .\Automated-Pages-Generator-0.1.5-win32-x64-experimental.zip -Algorithm SHA256` 后与校验文件比较。程序尚未进行代码签名。
+本地构建入口：`build/0.1.6/Automated-Pages-Generator-win32-x64/Automated-Pages-Generator.exe`。压缩包及 `SHA256SUMS.txt` 在 `build/`。Windows 可执行 `Get-FileHash .\Automated-Pages-Generator-0.1.6-win32-x64-experimental.zip -Algorithm SHA256` 后与校验文件比较。程序尚未进行代码签名。
 
 源码运行需要 Node.js 22.12+：
 
@@ -86,7 +86,7 @@ API 使用方式依据 [Electron webContents](https://www.electronjs.org/docs/la
 
 ## 验证边界
 
-用户提供的 0.1.4 诊断包含两轮真实请求、41 个有序 SSE 事件及无截断 HTTP 结束。请求与回答绑定、三类正文位置、多个结束阶段已有证据；追加语义、动态参数和后台调用仍须当前网页运行时精确校准。0.1.5 的单元测试是合成数据，不能代替账号实测。后台业务队列、联网搜索、长正文、title/其他字段生成及登录异常恢复尚未完成真实验收。详见 [验证记录](docs/verification.md) 与 [用户验收步骤](docs/manual-test.md)。
+用户提供的 0.1.4 诊断包含两轮真实请求、41 个有序 SSE 事件及无截断 HTTP 结束。请求与回答绑定、三类正文位置、多个结束阶段已有证据；追加语义、动态参数和后台调用仍须当前网页运行时精确校准。0.1.6 的单元测试是合成数据，不能代替账号实测。后台业务队列、联网搜索、长正文、title/其他字段生成及登录异常恢复尚未完成真实验收。详见 [验证记录](docs/verification.md) 与 [用户验收步骤](docs/manual-test.md)。
 
 ## 代码来源
 

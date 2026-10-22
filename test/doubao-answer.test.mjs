@@ -129,10 +129,25 @@ test('unterminated SSE tail and invalid UTF-8 never become complete', () => {
  const invalid = new AnswerStream(options); invalid.feed(new Uint8Array([0xff])); assert.match(invalid.finish().error, /UTF-8/);
 });
 
-test('duplicate SSE event IDs and malformed event fields are rejected', () => {
- const text = sse(events()).replaceAll('event: SSE_HEARTBEAT', 'id: fixed\nevent: SSE_HEARTBEAT').replace('event: SSE_ACK', 'id: fixed\nevent: SSE_ACK');
- const stream = new AnswerStream(options); stream.feed(text); assert.match(stream.finish().error, /重复 SSE/);
+test('shared SSE IDs across all event types are valid and do not drop body fragments', () => {
+ const text = sse(events()).replaceAll('event:', 'id: shared-cursor\nevent:');
+ const stream = new AnswerStream(options); stream.feed(text);
+ assert.equal(stream.finish().complete, true); assert.equal(stream.snapshot().text, expected);
+});
+
+test('inherited, reset and repeated ID fields do not determine message completion', () => {
+ const stream = new AnswerStream(options);
+ stream.feed('id: first\n\n' + sse(events()).replace('event: SSE_ACK', 'id: second\nid:\nid: shared\nevent: SSE_ACK') + 'id: final\n\n');
+ assert.equal(stream.finish().complete, true);
+ const partial = new AnswerStream(options); partial.feed('id: shared\n' + sse(events().slice(0, 4)));
+ assert.equal(partial.finish().complete, false);
  const bad = new AnswerStream(options); bad.feed('event: SSE_ACK\nevent: SSE_ACK\ndata: {}\n\n'); assert.match(bad.finish().error, /重复/);
+});
+
+test('same-ID duplicate payload is not silently discarded and cannot pass exact calibration', () => {
+ const values=events(); values.splice(7,0,structuredClone(values[6]));
+ const stream=new AnswerStream(options);stream.feed(sse(values).replaceAll('event:','id: shared\nevent:'));
+ assert.equal(stream.finish().complete,false);assert.match(stream.snapshot().error,/预期标记/);
 });
 
 test('response line, total bytes and body budgets stop processing without truncation success', () => {

@@ -1,6 +1,6 @@
 {
   "name": "automated-pages-generator",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "description": "Local Chromium workspace for Shopify pages and Matrixify XLSX export",
   "main": "src/main.cjs",
