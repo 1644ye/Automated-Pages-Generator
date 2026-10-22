@@ -3,7 +3,7 @@ from pathlib import Path
 import zipfile,hashlib,json
 root=Path(__file__).resolve().parents[1]
 version=json.loads((root/'package.json').read_text(encoding='utf8'))['version']
-source=root/'build/Automated-Pages-Generator-win32-x64'
+source=root/'build'/version/'Automated-Pages-Generator-win32-x64'
 archive=root/f'build/Automated-Pages-Generator-{version}-win32-x64-experimental.zip'
 with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
     for path in source.rglob('*'):

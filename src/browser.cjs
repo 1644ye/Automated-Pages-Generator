@@ -4,13 +4,43 @@ const keys=['input','send','user','answer','body','done','stop','search','search
 class BrowserDriver {
  constructor(view,rules,notify){this.view=view;this.rules=rules;this.notify=notify;this.samples=new Map()}
  async dom(op,arg={}){const rules=this.rules;return this.view.webContents.executeJavaScript(`(${pageOperation.toString()})(${JSON.stringify({op,arg,rules})})`,true)}
- async ready(network,monitor=false){for(const k of ['input','send','user','answer','body','done','stop','blocker'])if(!this.rules[k])throw Error('需要标定定位规则：'+k);const s=await this.dom('status');if(s.blocked)throw Error('待人工处理：验证码、登录或额度限制');if(s.inputs!==1||s.sends!==1)throw Error('输入框/发送按钮定位不唯一，需重新标定');if(s.generating&&!monitor)throw Error('网页仍在生成，请等待或手动停止后继续');if(network){if(!this.rules.search||!this.rules.searchEnabled)throw Error('未标定联网开关及已启用指示器');if(!s.searchEnabled){await this.dom('search');if(!(await this.dom('status')).searchEnabled)throw Error('无法确认联网搜索已启用')}}}
- async prepare(prompt,network){await this.ready(network);const baseline=await this.dom('baseline');await this.dom('fill',{text:prompt});return {baseline,prompt,sentAt:Date.now(),stableAt:0,last:'',text:'',bound:false,seenStop:false}}
+ async ready(network,monitor=false){
+  const missing=['input','send','user','answer','body','done','stop','blocker'].filter(k=>!this.rules[k]);
+  if(missing.length)throw Error('自动化尚未接通，需要标定定位规则：'+missing.join('、'));
+  const s=await this.dom('status');
+  if(s.blocked)throw Error('待人工处理：验证码、登录或额度限制');
+  // Empty composers may show a microphone; active turns may show only Stop.
+  if(!monitor&&s.inputs!==1)throw Error('输入框定位不唯一，需重新标定');
+  if(s.generating&&!monitor)throw Error('网页仍在生成，请等待或手动停止后继续');
+  if(network){
+   if(!this.rules.search||!this.rules.searchEnabled)throw Error('未标定联网开关及已启用指示器');
+   if(!s.searchEnabled){await this.dom('search');if(!(await this.dom('status')).searchEnabled)throw Error('无法确认联网搜索已启用')}
+  }
+ }
+ async waitForSend(timeout=5000){
+  const deadline=Date.now()+timeout;
+  while(true){
+   const s=await this.dom('status');
+   if(s.blocked)throw Error('待人工处理：验证码、登录或额度限制');
+   if(s.generating)throw Error('网页已有生成中的任务，未发送');
+   if(s.sends>1)throw Error('发送按钮定位不唯一，未发送');
+   if(s.sends===1&&s.sendEnabled)return;
+   if(Date.now()>=deadline)throw Error('已填入提示词，但发送按钮未出现或不可用，请检查发送按钮规则；尚未发送');
+   await new Promise(resolve=>setTimeout(resolve,100));
+  }
+ }
+ async prepare(prompt,network){
+  await this.ready(network);
+  const baseline=await this.dom('baseline');
+  await this.dom('fill',{text:prompt});
+  await this.waitForSend();
+  return {baseline,prompt,sentAt:Date.now(),stableAt:0,last:'',text:'',bound:false,seenStop:false};
+ }
  async poll(track){const s=await this.dom('read',{baseline:track.baseline,prompt:track.prompt});if(s.blocked)throw Error('待人工处理：验证码、登录、账号或额度限制');if(s.ambiguous)throw Error('消息绑定不唯一，暂停以避免串入历史回答');if(!s.bound)return {complete:false,text:track.text};track.bound=true;track.seenStop||=s.generating;track.text=s.text||track.text;if(s.text!==track.last){track.last=s.text;track.stableAt=Date.now()}const complete=!!s.text&&s.done&&!s.generating&&!s.collapsed&&Date.now()-track.stableAt>=2500;return {complete,text:track.text,sources:s.sources,searchObserved:s.searchEnabled};}
 }
 function pageOperation({op,arg,rules:r}){
  const q=(s,root=document)=>s?[...root.querySelectorAll(s)]:[];const visible=e=>!!(e.getClientRects().length)&&getComputedStyle(e).visibility!=='hidden';const live=s=>q(s).filter(visible);const one=s=>{const es=live(s);if(es.length!==1)throw Error('定位不唯一 '+s);return es[0]};
- const status=()=>({blocked:live(r.blocker).length>0,inputs:live(r.input).length,sends:live(r.send).length,generating:live(r.stop).length>0,searchEnabled:live(r.searchEnabled).length>0});
+ const status=()=>({blocked:live(r.blocker).length>0,inputs:live(r.input).length,sends:live(r.send).length,sendEnabled:live(r.send).length===1&&!live(r.send)[0].disabled&&live(r.send)[0].getAttribute('aria-disabled')!=='true',generating:live(r.stop).length>0,searchEnabled:live(r.searchEnabled).length>0});
  if(op==='status')return status();if(op==='search'){one(r.search).click();return true}if(op==='send'){const editor=one(r.input);const normalize=t=>t.replace(/\s+/g,' ').trim();if(normalize(editor.value??editor.innerText)!==normalize(arg.text))throw Error('发送前输入内容发生变化，未发送');const button=one(r.send);if(button.disabled||button.getAttribute('aria-disabled')==='true')throw Error('发送按钮不可用，未发送');button.click();return true}
  if(op==='fill'){const e=one(r.input);e.focus();if(e.isContentEditable){document.execCommand('selectAll',false);document.execCommand('insertText',false,arg.text)}else{const setter=Object.getOwnPropertyDescriptor(e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set;setter.call(e,arg.text);e.dispatchEvent(new Event('input',{bubbles:true}))}return true}
  if(op==='baseline'){window.__apgNodes??=new WeakMap();window.__apgSeq??=0;return q(r.user).map(e=>{if(!window.__apgNodes.has(e))window.__apgNodes.set(e,++window.__apgSeq);return window.__apgNodes.get(e)})}

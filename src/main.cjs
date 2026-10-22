@@ -1,7 +1,7 @@
 const {app,BrowserWindow,WebContentsView,ipcMain,Menu,shell}=require('electron');
-const {join}=require('node:path');const fs=require('node:fs/promises');const {randomUUID}=require('node:crypto');const {BrowserDriver,keys}=require('./browser.cjs');const {Navigation}=require('./navigation.cjs');
+const {join}=require('node:path');const fs=require('node:fs/promises');const {randomUUID}=require('node:crypto');const {BrowserDriver,keys}=require('./browser.cjs');const {Navigation}=require('./navigation.cjs');const {collectStructure}=require('./diagnostics.cjs');
 let win,view,driver,navigation,state,dir,core,running=false,closing=false,saveChain=Promise.resolve();
-const send=()=>{if(win&&!win.isDestroyed())win.webContents.send('state',{...state,paths:core.paths(),dataDir:dir})};
+const send=()=>{if(win&&!win.isDestroyed())win.webContents.send('state',{...state,version:app.getVersion(),paths:core.paths(),dataDir:dir,missingRules:['input','send','user','answer','body','done','stop','blocker'].filter(k=>!state.rules[k])})};
 function save(){const snapshot=JSON.stringify(state);const operation=saveChain.catch(()=>{}).then(async()=>{await fs.writeFile(join(dir,'state.tmp'),snapshot);await fs.rename(join(dir,'state.tmp'),join(dir,'state.json'));send()});saveChain=operation;return operation}
 function bounds(){if(!win||!view)return;const [w,h]=win.getContentSize();view.setBounds({x:Math.floor(w*.57),y:52,width:w-Math.floor(w*.57),height:h-52})}
 async function pause(t,error){t.status='待人工处理';t.error=error.message;state.paused=true;await save()}
@@ -23,6 +23,7 @@ app.whenReady().then(async()=>{core=await import('../shared/core.mjs');dir=app.g
 ipcMain.handle('command',async(event,name,value)=>{if(event.sender!==win?.webContents)throw Error('无权限');
  if(name==='state'){send();return}
  if(name==='rules'){if(state.tasks.some(t=>t.status==='生成中'))throw Error('请先暂停任务');const rules=JSON.parse(value);for(const [key,s]of Object.entries(rules))if(!keys.includes(key)||typeof s!=='string'||s.length>2000)throw Error('无效规则');state.rules=rules;driver.rules=rules;await save();return}
+ if(name==='diagnostics'){const structure=await view.webContents.executeJavaScript('('+collectStructure.toString()+')()');const report={version:app.getVersion(),createdAt:new Date().toISOString(),rulesConfigured:Object.fromEntries(keys.map(k=>[k,!!state.rules[k]])),taskCounts:state.tasks.reduce((counts,t)=>(counts[t.status]=(counts[t.status]||0)+1,counts),{}),structure};const folder=join(dir,'diagnostics');await fs.mkdir(folder,{recursive:true});const file=join(folder,'doubao-structure-'+Date.now()+'.json');await fs.writeFile(file,JSON.stringify(report,null,2),{flag:'wx'});return file}
  if(name==='check'){await driver.ready(value);return '定位规则检查通过；并非真实生成验证'}
  if(name==='reload'){view.setVisible(true);bounds();return navigation.open()}
  if(name==='add'){const input=value.input;if(!input.refTitle?.trim()||!input.refBody?.trim()||!(Number(input.discount)>0&&Number(input.discount)<=100))throw Error('请填写参考标题、内容和1–100折扣');const selected=value.selected||[];if(selected.length&&!value.base)throw Error('单字段/选中字段生成需先载入完整结果');if(selected.some(p=>!core.paths().includes(p)))throw Error('无效字段');if(selected.length)core.validateAll(value.base);const t={id:randomUUID(),input,prompt:value.prompt,network:!!value.network,selected,base:value.base||null,status:'待处理',raw:''};t.request=core.makePrompt(t);if(t.request.length>110000)throw Error('任务输入超过110000字符');state.tasks.push(t);await save();return t.id}
