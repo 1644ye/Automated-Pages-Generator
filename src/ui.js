@@ -1,10 +1,44 @@
-const $=id=>document.getElementById(id);let state,selectedId;const names={brand:'品牌名称（选填，仅 SEO）',email:'联系邮箱（选填）',website:'网站地址（选填）',refTitle:'参考网站描述 · 标题',refBody:'参考网站描述 · 内容',discount:'最高折扣 % OFF',date:'文案日期（选填）',details:'产品与服务补充（选填）'};
-for(const [id,title]of Object.entries(names)){const label=document.createElement('label');label.textContent=title;const el=document.createElement(['refBody','details'].includes(id)?'textarea':'input');el.id=id;if(id==='discount'){el.type='number';el.min=1;el.max=100}if(id==='date')el.type='date';label.append(el);$('inputs').append(label)}
+const $=id=>document.getElementById(id);
+let state,selectedId;
+const names={brand:'品牌名称（选填，仅 SEO）',email:'联系邮箱（选填）',website:'网站地址（选填）',refTitle:'参考网站描述 · 标题',refBody:'参考网站描述 · 内容',discount:'最高折扣 % OFF',date:'文案日期（选填）',details:'产品与服务补充（选填）'};
+for(const [id,title] of Object.entries(names)) {
+ const label=document.createElement('label');label.textContent=title;
+ const el=document.createElement(['refBody','details'].includes(id)?'textarea':'input');el.id=id;
+ if(id==='discount'){el.type='number';el.min=1;el.max=100}if(id==='date')el.type='date';
+ label.append(el);$('inputs').append(label);
+}
 async function call(name,v){try{return await desktop.call(name,v)}catch(e){$('notice').textContent=e.message;throw e}}
-function render(s){state=s;$('appVersion').textContent='v'+s.version;const labels={input:'输入框',send:'发送按钮',user:'用户消息',answer:'助手回答',body:'正文',done:'完成状态',stop:'生成状态',blocker:'异常提示'};const missing=s.missingRules||[];const pending=s.tasks.filter(t=>t.status==='待处理').length;$('connectionStatus').textContent=missing.length?'尚未接通自动化，缺少：'+missing.map(k=>labels[k]||k).join('、')+'。已有 '+pending+' 条待处理任务，尚未发送。':'定位规则已保存，点击检查并继续前仍需核对当前页面。';$('resume').disabled=missing.length>0;$('reload').textContent=s.browserStatus==='loading'?'正在连接…点击重试':'重新打开豆包';if(!$('fields').children.length)for(const path of s.paths){const label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.value=path;label.append(box,document.createTextNode(path));$('fields').append(label)}if(document.activeElement!==$('rules'))$('rules').value=JSON.stringify(s.rules,null,2);$('notice').textContent=(s.paused?'队列已暂停。':'队列运行中。')+(s.browserError||'');$('location').textContent='本地数据与登录状态：'+s.dataDir;$('tasks').replaceChildren();for(const t of s.tasks){const row=document.createElement('div');row.className='task'+(selectedId===t.id?' active':'');row.textContent=t.input.refTitle+' · '+t.status+(t.error?' · '+t.error:'');const cancel=document.createElement('button');cancel.textContent='取消';cancel.onclick=e=>{e.stopPropagation();call('cancel',t.id)};row.onclick=()=>{selectedId=t.id;$('result').value=t.content?JSON.stringify(t.content,null,2):'';render(state)};row.append(cancel);$('tasks').append(row)}const t=s.tasks.find(t=>t.id===selectedId)||s.tasks.find(t=>t.status==='生成中');$('stream').textContent=t?.raw||'';$('exports').replaceChildren();for(const e of s.exports){const p=document.createElement('p');p.textContent=e.at+' · '+e.file+' · '+e.bytes+' bytes';$('exports').append(p)}}
-desktop.onState(render);call('state');$('add').onclick=async()=>{const selected=[...$('fields').querySelectorAll('input:checked')].map(e=>e.value);const base=selected.length?JSON.parse($('result').value):null;selectedId=await call('add',{input:Object.fromEntries(Object.keys(names).map(id=>[id,$(id).value.trim()])),selected,base,prompt:$('prompt').value,network:$('network').checked});call('state')};for(const id of ['pause','resume','reload','openExports'])$(id).onclick=()=>call(id);$('saveRules').onclick=()=>call('rules',$('rules').value);$('check').onclick=async()=>{$('notice').textContent=await call('check',$('network').checked)};$('save').onclick=()=>call('edit',{id:selectedId,json:$('result').value});
-
+function renderConnection(s) {
+ const p=s.protocol||{phase:'idle',count:0};const busy=['starting','recording','saving','stopped'].includes(p.phase);
+ const missing=s.missingRules||[];const pending=s.tasks.filter(t=>t.status==='待处理').length;
+ $('connectionStatus').textContent='后台直连尚未接通，等待真实协议验证。请先完成下面的一次手动采集；现有 '+pending+' 条待处理任务保持不变。';
+ $('legacyStatus').textContent=missing.length?'原网页模式尚缺 '+missing.length+' 项定位规则。协议采集不需要这些规则。':'原网页模式已保存规则，仍需实际生成验证。';
+ $('startProtocol').disabled=busy;$('stopProtocol').disabled=p.phase!=='recording';
+ $('resume').disabled=missing.length>0||busy;$('reload').disabled=busy;
+ const seconds=p.deadline?Math.max(0,Math.ceil((p.deadline-Date.now())/1000)):0;
+ const labels={idle:'等待开始。请先登录，再采集普通测试对话。',starting:'正在启动本地协议采集…',recording:'正在采集：已观察 '+p.count+' 个候选请求，最多还剩 '+seconds+' 秒。请手动发送测试消息。',saving:'正在结束采集并保存脱敏诊断…',stopped:'正在保存脱敏诊断…',saved:(p.reason==='timeout'?'已达到 120 秒上限并自动保存。':'已保存。')+' 共 '+p.count+' 个候选请求；不代表已找到可用对话接口。',failed:p.error||'采集失败，请重试。'};
+ $('protocolStatus').textContent=labels[p.phase]||'';
+ $('protocolPath').textContent=p.file?'诊断文件：'+p.file:'';
+}
+function render(s) {
+ state=s;$('appVersion').textContent='v'+s.version;renderConnection(s);
+ $('reload').textContent=s.browserStatus==='loading'?'正在连接…点击重试':'重新打开豆包';
+ if(!$('fields').children.length)for(const path of s.paths){const label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.value=path;label.append(box,document.createTextNode(path));$('fields').append(label)}
+ if(document.activeElement!==$('rules'))$('rules').value=JSON.stringify(s.rules,null,2);
+ $('notice').textContent=(s.paused?'队列已暂停。':'队列运行中。')+(s.browserError||'');
+ $('location').textContent='本地数据与登录状态：'+s.dataDir;
+ $('tasks').replaceChildren();
+ for(const t of s.tasks){const row=document.createElement('div');row.className='task'+(selectedId===t.id?' active':'');row.textContent=t.input.refTitle+' · '+t.status+(t.error?' · '+t.error:'');const cancel=document.createElement('button');cancel.textContent='取消';cancel.onclick=e=>{e.stopPropagation();call('cancel',t.id)};row.onclick=()=>{selectedId=t.id;$('result').value=t.content?JSON.stringify(t.content,null,2):'';render(state)};row.append(cancel);$('tasks').append(row)}
+ const t=s.tasks.find(t=>t.id===selectedId)||s.tasks.find(t=>t.status==='生成中');$('stream').textContent=t?.raw||'';
+ $('exports').replaceChildren();for(const e of s.exports){const p=document.createElement('p');p.textContent=e.at+' · '+e.file+' · '+e.bytes+' bytes';$('exports').append(p)}
+}
 window.addEventListener('unhandledrejection',event=>{$('notice').textContent=event.reason?.message||String(event.reason)});
-
+desktop.onState(render);call('state');
+$('add').onclick=async()=>{const selected=[...$('fields').querySelectorAll('input:checked')].map(e=>e.value);const base=selected.length?JSON.parse($('result').value):null;selectedId=await call('add',{input:Object.fromEntries(Object.keys(names).map(id=>[id,$(id).value.trim()])),selected,base,prompt:$('prompt').value,network:$('network').checked});call('state')};
+for(const id of ['pause','resume','reload','openExports','startProtocol','stopProtocol'])$(id).onclick=()=>call(id);
+$('saveRules').onclick=()=>call('rules',$('rules').value);
+$('check').onclick=async()=>{$('notice').textContent=await call('check',$('network').checked)};
+$('save').onclick=()=>call('edit',{id:selectedId,json:$('result').value});
 $('jumpRules').onclick=()=>{$('ruleSettings').open=true;$('ruleSettings').scrollIntoView({behavior:'smooth'})};
 $('diagnostics').onclick=async()=>{const file=await call('diagnostics');$('diagnosticPath').textContent='诊断文件已保存：'+file};
+setInterval(()=>{if(state?.protocol?.phase==='recording')renderConnection(state)},1000);

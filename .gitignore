@@ -10,3 +10,7 @@ exports/
 *.pem
 *.key
 .cache/
+diagnostics/
+*.har
+doubao-protocol-*.json
+doubao-structure-*.json
