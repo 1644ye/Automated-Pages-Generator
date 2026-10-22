@@ -2,16 +2,16 @@
 
 Electron / Chromium Windows 桌面工作区：用户手动登录豆包，校准后通过当前网页的 fetch 通道生成 Shopify 页面及首页 / SEO 文案，无需 API Key。
 
-## v0.2.1 安装
+## v0.2.2 安装
 
-1. 关闭旧版，完整解压 `Automated-Pages-Generator-0.2.1-win32-x64-experimental.zip`。
-2. 打开解压后 `Automated-Pages-Generator-win32-x64` 文件夹中的 `Automated-Pages-Generator.exe`，确认左上角 **v0.2.1**。不要只复制 EXE。
+1. 关闭旧版，完整解压 `Automated-Pages-Generator-0.2.2-win32-x64-experimental.zip`。
+2. 打开解压后 `Automated-Pages-Generator-win32-x64` 文件夹中的 `Automated-Pages-Generator.exe`，确认左上角 **v0.2.2**。不要只复制 EXE。
 3. 旧任务、导出记录及登录分区继续使用 `%APPDATA%/automated-pages-generator/`。无需 DSH 或额外安装浏览器。程序尚未代码签名。
 
-本地入口：`build/0.2.1/Automated-Pages-Generator-win32-x64/Automated-Pages-Generator.exe`。压缩包与 `SHA256SUMS.txt` 位于 `build/`。
+本地入口：`build/0.2.2/Automated-Pages-Generator-win32-x64/Automated-Pages-Generator.exe`。压缩包与 `SHA256SUMS.txt` 位于 `build/`。
 
 ```powershell
-Get-FileHash .\Automated-Pages-Generator-0.2.1-win32-x64-experimental.zip -Algorithm SHA256
+Get-FileHash .\Automated-Pages-Generator-0.2.2-win32-x64-experimental.zip -Algorithm SHA256
 ```
 
 将结果与校验文件比对后使用。卸载时关闭程序并移除解压目录即可；用户数据默认保留。需要彻底清除时自行备份后移除上述 AppData 目录。
@@ -46,7 +46,7 @@ Get-FileHash .\Automated-Pages-Generator-0.2.1-win32-x64-experimental.zip -Algor
 
 ## 验证状态
 
-用户提供的 v0.1.9 实际报告已证明三轮手动校准及第四条后台短消息成功。v0.2.1 的代码回归使用离线合成协议与任务，不登录或控制屏幕，不代表豆包业务验收通过。
+用户提供的 v0.1.9 实际报告已证明三轮手动校准及第四条后台短消息成功。v0.2.2 的代码回归使用离线合成协议与任务，不登录或控制屏幕，不代表豆包业务验收通过。
 
 本版需用户实测：完整页面长 JSON、title / SEO 选中字段、连续批量调用、暂停恢复、一次修复及真实生成 XLSX。详见 `docs/manual-test.md` 和 `docs/verification.md`。当前沿用已经接受的请求游标值，不猜测递增公式；连续业务请求是否兼容仍待实际验证。
 
@@ -69,3 +69,5 @@ python scripts/archive.py
 ```
 
 本轮实际执行无进程隔离的等价测试命令 `node --experimental-test-isolation=none --test test/*.test.mjs`、`npm run build` 和打包脚本。未运行 `npm start` 或操作真实窗口。构建可通过 `ELECTRON_ZIP_DIR` 指向已有 Electron ZIP 缓存。
+
+v0.2.2：对于旧的“校验失败”任务，点击任务后按“重新校验所选失败结果（不调用豆包）”。程序只无损拆分可确定的重复页面三字段组，其他结构错误仍拒绝。通过全部校验后导出；无需再次生成。

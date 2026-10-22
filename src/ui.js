@@ -60,3 +60,5 @@ $('diagnostics').onclick=async()=>{const file=await call('diagnostics');$('diagn
 setInterval(()=>{if(state?.protocol?.phase==='recording')renderConnection(state)},1000);
 
 $('resume').onclick=()=>call('resumeBackend');
+
+$('revalidate').onclick=async()=>{await call('revalidate',selectedId);const t=state.tasks.find(t=>t.id===selectedId);if(t?.content)$('result').value=JSON.stringify(t.content,null,2)};

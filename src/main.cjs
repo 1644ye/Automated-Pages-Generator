@@ -72,6 +72,7 @@ ipcMain.handle('command',async(event,name,value)=>{if(event.sender!==win?.webCon
  }
  if(name==='resume'){if(captureActive())throw Error('请先结束协议采集；采集期间不会发送队列任务');await driver.ready(false,true);if(captureActive())throw Error('协议采集已开始，队列保持暂停');for(const t of state.tasks.filter(t=>t.status==='待人工处理')){if(t.track){t.status='生成中';t.started=Date.now()}else if(t.content)t.status='待导出';else t.status='待处理';delete t.error}state.paused=false;await save();return}
  if(name==='cancel'){const t=state.tasks.find(t=>t.id===value);if(t&&t.status!=='已完成'){t.status='已取消';t.error='已取消，不会导出或重新发送。';if(t.transport==='backend'&&t.track){state.paused=true;await backendProbe?.cancelTask(t.track)}}await save();return}
+ if(name==='revalidate'){const t=state.tasks.find(t=>t.id===value);if(!t||t.status!=='校验失败')throw Error('请选择校验失败任务');t.content=core.parseResult(t.raw,t);t.revision=(t.revision||0)+1;t.status='待导出';delete t.error;await save();await finish(t);return}
  if(name==='edit'){const t=state.tasks.find(t=>t.id===value.id);if(!t||!['已完成','校验失败'].includes(t.status))throw Error('仅可编辑已结束任务');t.content=core.validateAll(JSON.parse(value.json));t.revision=(t.revision||0)+1;t.status='待导出';await save();await finish(t);return}
  if(name==='openExports'){await shell.openPath(join(dir,'exports'));return}
  throw Error('未知命令')});
