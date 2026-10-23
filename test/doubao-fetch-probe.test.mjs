@@ -196,3 +196,8 @@ test('business HTTP failure and cancellation invalidate the connection without r
   assert.doesNotMatch(JSON.stringify(app.plain()),/Private business material/);app.api.dispose();
  }
 });
+test('calibration whitespace binds the actual request echo through completion',async()=>{
+ const app=setup();const request=body(1);request.messages[0].content_block[0].content.text_block.text=config.probes[0].prompt.replace('\n','\n\n');
+ assert.equal((await app.send(1,{request})).probes[0].complete,true);
+ assert.equal((await app.send(2)).phase,'ready');app.api.test();assert.equal((await app.settle()).phase,'passed');app.api.dispose();
+});

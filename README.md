@@ -1,12 +1,12 @@
-# Automated Pages Generator · v0.3.3
+# Automated Pages Generator · v0.3.4
 
 Windows Chromium 桌面生成器。使用者手动登录豆包，建立后台连接后生成 Shopify 页面、首页文案、SEO 和尺码表，无需 API Key。
 
 ## 安装与打开
 
-完整解压 `Automated-Pages-Generator-0.3.3-win32-x64-experimental.zip`，打开文件夹中的 `Automated-Pages-Generator.exe`。不要单独复制 EXE。无需 DSH 或另装浏览器，当前未代码签名。
+完整解压 `Automated-Pages-Generator-0.3.4-win32-x64-experimental.zip`，打开文件夹中的 `Automated-Pages-Generator.exe`。不要单独复制 EXE。无需 DSH 或另装浏览器，当前未代码签名。
 
-本地入口：`build/0.3.3/Automated-Pages-Generator-win32-x64/Automated-Pages-Generator.exe`。
+本地入口：`build/0.3.4/Automated-Pages-Generator-win32-x64/Automated-Pages-Generator.exe`。
 
 每次启动清空上次任务、流式内容及界面的导出记录，不恢复旧任务；已导出的文件不删除。导出目录设置与本机登录分区继续保留。
 
@@ -64,7 +64,11 @@ npm test
 npm start
 npm run build
 python scripts/archive.py
-Get-FileHash .\build\Automated-Pages-Generator-0.3.3-win32-x64-experimental.zip -Algorithm SHA256
+Get-FileHash .\build\Automated-Pages-Generator-0.3.4-win32-x64-experimental.zip -Algorithm SHA256
 ```
 
 本轮运行 CLI 测试、构建及 ZIP 打包，不启动窗口或控制屏幕。124项离线回归通过，包括选项、严格校验、文案 XLSX、会话清空、导出目录、串行队列和协议解析；真实豆包新功能由用户按 `docs/manual-test.md` 验收。校验文件在 `build/SHA256SUMS.txt`。
+
+### 0.3.4 校准输入修复
+
+校准提示词允许富文本编辑器产生的换行和空白差异，随机标记与其他文字仍须匹配；回答解析绑定实际发出的文本，业务请求继续严格匹配。此修复经过离线测试，真实豆包发送由使用者验证。升级后若输入框保留上次未发送的校准文字，请先手动清空，再点击生成。

@@ -33,3 +33,11 @@ test('changed test ID falls back to a unique visible editor; ambiguity blocks wr
 test('startup waits for editor readiness before creating or sending',async()=>{
  const a=setup(),original=a.flow.page;let polls=0;a.flow.page=async(op,prompt)=>{if(op==='status'&&polls++<3)return {ready:false,empty:false};return original(op,prompt)};await a.flow.run();assert.ok(polls>=4);assert.equal(a.actions.filter(x=>x==='new').length,1);assert.equal(a.actions.filter(x=>x==='submit').length,3);
 });
+test('rich editor calibration whitespace is accepted but changed marker is not sent',()=>{
+ const prompt='Calibration:\nAPG_DIRECT_ONE_0123456789abcdef';let clicks=0;
+ const editor={innerText:'Calibration:\n\nAPG_DIRECT_ONE_0123456789abcdef\n',getClientRects:()=>[{}],getAttribute:()=>null,focus(){}};
+ const send={innerText:'Send',getClientRects:()=>[{}],getAttribute:()=>null,click(){clicks++}};
+ const context={document:{querySelectorAll:s=>s.startsWith('button,')?[send]:s==='textarea,[contenteditable="true"]'?[editor]:[]},getComputedStyle:()=>({visibility:'visible'})};
+ const submit=()=>runInNewContext('('+connectionPage.toString()+')("submit",'+JSON.stringify(prompt)+')',context);
+ assert.equal(submit(),'clicked');assert.equal(clicks,1);editor.innerText=prompt+'x';assert.throws(submit);assert.equal(clicks,1);
+});

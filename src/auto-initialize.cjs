@@ -28,7 +28,9 @@ function connectionPage(op,prompt=''){
   editor.focus();if(editor.isContentEditable){const selection=window.getSelection(),range=document.createRange();range.selectNodeContents(editor);selection.removeAllRanges();selection.addRange(range);if(!document.execCommand('insertText',false,prompt))throw Error('无法写入可编辑输入框，未发送')}else{Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(editor,prompt);editor.dispatchEvent(new Event('input',{bubbles:true}))}return true;
  }
  if(op==='submit'){
-  if(read().replace(/\r\n/g,'\n')!==prompt.replace(/\r\n/g,'\n'))throw Error('校准发送前输入内容变化，未发送');editor.focus();
+  // Only calibration text is compared here; rich editors insert layout whitespace.
+  const normalize=s=>String(s).replace(/\s+/g,' ').trim();
+  if(normalize(read())!==normalize(prompt))throw Error('校准发送前输入内容变化，未发送');editor.focus();
   const sends=controls.filter(e=>/^(发送|发送消息|Send|Send message)$/i.test(label(e)));
   if(sends.length>1)throw Error('发送入口不唯一');
   if(sends.length===1){if(sends[0].disabled||sends[0].getAttribute('aria-disabled')==='true')throw Error('发送按钮不可用');sends[0].click();return 'clicked'}

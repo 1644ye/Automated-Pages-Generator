@@ -46,7 +46,9 @@ class BackendProbe {
   // become evidence for a test merely because it happened nearby in time.
   let body;try{if(typeof r.postData!=='string'||r.postData.length>600000)return;body=JSON.parse(r.postData)}catch{return}
   const text=body?.messages?.length===1&&body.messages[0]?.content_block?.length===1?body.messages[0].content_block[0]?.content?.text_block?.text:null;
-  const p=[...this.probes,this.test,...(this.operation?[this.operation]:[])].find(p=>p.prompt===text);if(!p)return;
+  // Normalize only synthetic calibration prompts, never business requests.
+  const normalized=typeof text==='string'?text.replace(/\s+/g,' ').trim():null;
+  const p=[...this.probes,this.test].find(p=>p.prompt.replace(/\s+/g,' ').trim()===normalized)||(this.operation?.prompt===text?this.operation:null);if(!p)return;
   const prior=this.network.get(p.id);const signature=url.searchParams.get('a_bogus')||'';
   this.network.set(p.id,{id:p.id,requests:(prior?.requests||0)+1,signaturePresent:!!signature});
   this.signatures.set(p.id,signature);

@@ -100,3 +100,7 @@ test('temporary status read failures preserve bridge; success recovers; three fa
  contents.executeJavaScript=code=>code.includes('.snapshot()')?Promise.reject(Error('private detail')):execute(code);
  await host.poll();await host.poll();assert.equal(host.phase,'active');await host.poll();assert.equal(host.phase,'blocked');assert.doesNotMatch(JSON.stringify(host.snapshot()),/private detail/);await host.stop();
 });
+test('signature observation tolerates calibration layout only, not business changes',async()=>{
+ const {host}=setup();await host.start();request(host,{...host.probes[0],prompt:host.probes[0].prompt.replace('\n','\n\n')},'sig');assert.equal(host.network.get(host.probes[0].id).requests,1);
+ host.operation={id:'business',prompt:'business\ntext'};request(host,{prompt:'business\n\ntext'},'sig2');assert.equal(host.network.has('business'),false);await host.stop();
+});

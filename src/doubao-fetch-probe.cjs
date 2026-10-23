@@ -41,7 +41,7 @@ function installFetchProbe(config, createAnswerRuntime) {
   if(!(typeof input==='string'||input instanceof URL)||typeof init?.body!=='string'){block('网页使用了未适配的 Request 或请求体形式；未发送后台测试');return null}
   if(init.body.length>256000){block('对话请求体超过测试上限');return null}
   let body,info;try{body=JSON.parse(init.body);info=bodyInfo(body)}catch{block('网页对话请求结构尚未适配；未发送后台测试');return null}
-  const index=originals.findIndex(p=>p.prompt===info.text);
+  const index=originals.findIndex(p=>p.prompt.replace(/\s+/g,' ').trim()===info.text.replace(/\s+/g,' ').trim());
   if(index<0){block('校准期间出现其他对话请求；请结束后重新准备');return null}
   if(active!==-1||state.probes[index].seen||index!==state.probes.filter(p=>p.complete).length){block('校准消息须依次发送并等待完整回答，不能重发或并行');return null}
   const headers=new Headers(init.headers);
@@ -144,7 +144,7 @@ function installFetchProbe(config, createAnswerRuntime) {
   const index=observed.index;
   try{
    const cloned=response.clone();
-   const result=await readResponse(cloned,originals[index],observed.body,null,state.probes[index]);
+   const result=await readResponse(cloned,{...originals[index],prompt:observed.body.messages[0].content_block[0].content.text_block.text},observed.body,null,state.probes[index]);
    if(!isActive()||!result)return;answers[index]=result;active=-1;
    if(index===originals.length-1){buildTestRequest();state.phase='ready';state.requestShapeReady=true;state.reason='所有轮次解析校准通过，可以尝试一次后台测试。'}
    else state.reason='本条校准通过，请在同一会话手动发送下一条。';
