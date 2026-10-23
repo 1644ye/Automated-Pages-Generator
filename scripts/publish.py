@@ -40,6 +40,9 @@ try:
     if not release.get('draft'):raise SystemExit('Published release already exists; no changes made')
 except urllib.error.HTTPError as e:
     if e.code!=404:raise SystemExit('Release inspection failed: HTTP '+str(e.code))
+if release is None:
+    release=next((r for r in request(api+'/releases?per_page=100') if r['tag_name']==tag),None)
+    if release and not release.get('draft'):raise SystemExit('Published release already exists; no changes made')
 head=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
 notes=(root/'docs/release-0.3.6.md').read_text(encoding='utf8')
 try:
