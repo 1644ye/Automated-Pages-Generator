@@ -7,24 +7,28 @@ function connectionPage(op,prompt=''){
  const label=e=>(e.getAttribute('aria-label')||e.getAttribute('title')||e.innerText||'').trim();
  const blocked=controls.some(e=>/^(登录|立即登录|登录豆包|Log in|Sign in)$/i.test(label(e)))||[...document.querySelectorAll('[role="dialog"],[role="alert"]')].filter(visible).some(e=>/验证码|安全验证|登录失效|账号异常|次数.*上限|额度不足|稍后再试/.test(e.innerText||''));
  if(blocked)throw Error('请先手动完成登录、验证码或账号/额度处理，再点击继续');
- const inputs=[...document.querySelectorAll('textarea[data-testid="chat_input_input"]')].filter(visible);
- if(inputs.length!==1||inputs[0].disabled)throw Error('未找到唯一可用的豆包输入框，请确认登录和页面已加载');
- const editor=inputs[0];
+ const usable=e=>visible(e)&&!e.disabled&&!e.readOnly&&e.getAttribute('aria-disabled')!=='true';
+ const preferred=[...document.querySelectorAll('textarea[data-testid="chat_input_input"]')].filter(usable);
+ const candidates=preferred.length?preferred:[...document.querySelectorAll('textarea,[contenteditable="true"]')].filter(usable);
+ // Nested editable children belong to the same editor, not separate candidates.
+ const inputs=candidates.filter(e=>!candidates.some(other=>other!==e&&other.contains?.(e)));
  const generating=controls.some(e=>/^(停止|停止生成|Stop|Stop generating)$/i.test(label(e)));
- if(op==='status')return {ready:document.readyState==='complete',empty:!editor.value.trim(),generating};
+ if(inputs.length!==1){if(op==='status')return {ready:false,empty:false,generating,inputCount:inputs.length};throw Error('可用输入框数量为 '+inputs.length+'，未填写或发送，请检查页面');}
+ const editor=inputs[0],read=()=>typeof editor.value==='string'?editor.value:editor.innerText||'';
+ if(op==='status')return {ready:document.readyState==='complete',empty:!read().trim(),generating,inputCount:1,editorType:editor.isContentEditable?'contenteditable':'textarea'};
  if(generating)throw Error('网页仍在生成，请等结束后继续');
  if(op==='new'){
-  if(editor.value.trim())throw Error('豆包输入框有未发送草稿，请先手动处理，不会覆盖');
+  if(read().trim())throw Error('豆包输入框有未发送草稿，请先手动处理，不会覆盖');
   const sidebar=document.querySelector('[data-testid="flow_chat_sidebar"]');if(!sidebar)throw Error('新对话入口未适配，请检查页面');
   const matches=[...sidebar.querySelectorAll('button,a,div,span,[role="button"]')].filter(visible).filter(e=>(e.innerText||'').trim()==='新对话').filter(e=>![...e.children].some(c=>(c.innerText||'').trim()==='新对话'));
   if(matches.length!==1)throw Error('新对话入口不唯一，未发送消息');matches[0].click();return true;
  }
  if(op==='fill'){
-  if(editor.value.trim())throw Error('输入框有草稿，未覆盖');
-  editor.focus();Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(editor,prompt);editor.dispatchEvent(new Event('input',{bubbles:true}));return true;
+  if(read().trim())throw Error('输入框有草稿，未覆盖');
+  editor.focus();if(editor.isContentEditable){const selection=window.getSelection(),range=document.createRange();range.selectNodeContents(editor);selection.removeAllRanges();selection.addRange(range);if(!document.execCommand('insertText',false,prompt))throw Error('无法写入可编辑输入框，未发送')}else{Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(editor,prompt);editor.dispatchEvent(new Event('input',{bubbles:true}))}return true;
  }
  if(op==='submit'){
-  if(editor.value!==prompt)throw Error('校准发送前输入内容变化，未发送');editor.focus();
+  if(read().replace(/\r\n/g,'\n')!==prompt.replace(/\r\n/g,'\n'))throw Error('校准发送前输入内容变化，未发送');editor.focus();
   const sends=controls.filter(e=>/^(发送|发送消息|Send|Send message)$/i.test(label(e)));
   if(sends.length>1)throw Error('发送入口不唯一');
   if(sends.length===1){if(sends[0].disabled||sends[0].getAttribute('aria-disabled')==='true')throw Error('发送按钮不可用');sends[0].click();return 'clicked'}
@@ -48,7 +52,7 @@ class AutoInitializer{
 
  async until(check,ms,message){const deadline=this.now()+ms;while(true){this.check();if(await check())return;if(this.now()>=deadline)throw Error(message);await this.sleep(300)}}
  async run(){
-  this.onProgress('正在检查登录并创建初始化会话');await this.page('status');await this.page('new');
+  this.onProgress('正在等待页面输入框就绪');await this.until(async()=>{const s=await this.page('status');this.lastInputCount=s.inputCount;return s.ready},15000,'页面等待超时：未找到唯一可用输入框，请检查登录或页面结构');this.onProgress('正在创建初始化会话');await this.page('new');
   await this.sleep(500);await this.until(async()=>{const s=await this.page('status');return s.ready&&s.empty},10000,'新对话未就绪，未发送');
   this.check();const host=await this.createBackend();this.host=host;await host.start();this.check();
   for(let i=0;i<host.probes.length;i++){

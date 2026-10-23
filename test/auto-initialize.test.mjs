@@ -18,8 +18,18 @@ test('visible login prompt prevents any page action; generating status remains r
 
 test('page errors cross Electron boundary as structured data with a readable step',async()=>{
  const contents={async executeJavaScript(code){return runInNewContext(code,{document:{querySelectorAll:()=>[]},getComputedStyle:()=>({visibility:'visible'})})}};
- const flow=new AutoInitializer(contents);await assert.rejects(flow.page('status'),/检查页面失败：未找到唯一可用/);
+ const flow=new AutoInitializer(contents);await assert.rejects(flow.page('fill'),/填写校准消息失败：可用输入框数量为 0/);
 });
 test('page success unwraps the returned status envelope',async()=>{
  const flow=new AutoInitializer({async executeJavaScript(){return {ok:true,value:{ready:true,empty:true}}}});assert.deepEqual(await flow.page('status'),{ready:true,empty:true});
+});
+
+test('changed test ID falls back to a unique visible editor; ambiguity blocks writes',()=>{
+ const editor={getClientRects:()=>[{}],getAttribute:()=>null,value:'',isContentEditable:true};let editors=[editor];
+ const context={document:{readyState:'complete',querySelectorAll:s=>s==='textarea,[contenteditable="true"]'?editors:[]},getComputedStyle:()=>({visibility:'visible'})};
+ const call=op=>runInNewContext('('+connectionPage.toString()+')('+JSON.stringify(op)+')',context);
+ assert.equal(call('status').ready,true);assert.equal(call('status').editorType,'contenteditable');editors=[editor,{...editor}];assert.equal(call('status').ready,false);assert.throws(()=>call('fill'),/数量为 2/);
+});
+test('startup waits for editor readiness before creating or sending',async()=>{
+ const a=setup(),original=a.flow.page;let polls=0;a.flow.page=async(op,prompt)=>{if(op==='status'&&polls++<3)return {ready:false,empty:false};return original(op,prompt)};await a.flow.run();assert.ok(polls>=4);assert.equal(a.actions.filter(x=>x==='new').length,1);assert.equal(a.actions.filter(x=>x==='submit').length,3);
 });
