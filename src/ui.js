@@ -5,7 +5,7 @@ function renderLive(s){
  const tasks=s.tasks||[],init=s.initialization||{},current=tasks.find(t=>['生成中','待导出'].includes(t.status)),attention=tasks.find(t=>['待人工处理','校验失败'].includes(t.status)),pending=tasks.filter(t=>t.status==='待处理');
  let title='等待添加任务',detail='填写输入材料并勾选内容，点击生成即可。',stage=-1,tone='idle',task=current;
  if(init.phase==='running'){title=init.message;detail='正在自动建立连接，请勿在豆包中输入或切换会话。';stage=0;tone='busy'}
- else if(current){title=current.status==='待导出'?'校验通过 · 正在导出 XLSX':current.repairAttempt?'正在修复返回格式（仅一次）':current.raw?'正在接收生成内容':'请求已发送 · 等待豆包回答';stage=current.status==='待导出'?3:1;tone='busy';detail=current.input.refTitle;if(s.paused){title='队列已暂停 · 当前回答暂存';tone='paused';detail+='。点击继续后读取原任务，不会重新发送。'}}
+ else if(current){title=current.status==='待导出'?'校验通过 · 正在导出 XLSX':current.repairRound?'正在自动修复内容（'+current.repairRound+'/3）':current.raw?'正在接收生成内容':'请求已发送 · 等待豆包回答';stage=current.status==='待导出'?3:1;tone='busy';detail=current.input.refTitle;if(s.paused){title='队列已暂停 · 当前回答暂存';tone='paused';detail+='。点击继续后读取原任务，不会重新发送。'}}
  else if(init.phase==='attention'||attention){title='需要处理 · '+(attention?.status||'初始化未完成');detail=init.phase==='attention'?init.message:attention.error;stage=-1;tone='error';task=attention}
  else if(pending.length){title=s.paused?'队列已暂停':'准备发送下一条任务';detail=pending[0].input.refTitle;stage=0;tone=s.paused?'paused':'busy';task=pending[0]}
  else if(tasks.some(t=>t.status==='已完成')){title='生成完成';detail=tasks.some(t=>t.status==='已完成'&&t.kind==='marketing'&&t.exportXlsx===false)?'文案已在应用内生成，可预览、编辑、复制或手动导出 XLSX。':'XLSX 已导出，可在下方导出记录查看文件。';stage=4;tone='success'}
@@ -60,7 +60,7 @@ function render(s) {
  $('notice').textContent=s.initialization?.phase==='attention'?'初始化未完成：'+s.initialization.message:s.initialization?.phase==='running'?s.initialization.message:(s.paused?'队列已暂停。':'队列运行中。')+(s.browserError||'');
  $('location').textContent='本地数据与登录状态：'+s.dataDir;
  $('tasks').replaceChildren();
- for(const t of s.tasks){const row=document.createElement('div');row.className='task'+(selectedId===t.id?' active':'');const badge=document.createElement('strong'),title=document.createElement('div'),detail=document.createElement('div');badge.className='task-badge';badge.textContent=t.status+(t.status==='生成中'?' · 已接收 '+(t.raw||'').length+' 字符':'');row.dataset.status=t.status;title.textContent=t.input.refTitle;detail.textContent=t.error||(t.repairAttempt&&t.status!=='已完成'?'正在自动修复格式，仅一次':'');row.append(badge,title,detail);const cancel=document.createElement('button');cancel.textContent='取消';cancel.disabled=['已完成','已取消'].includes(t.status);cancel.onclick=e=>{e.stopPropagation();call('cancel',t.id)};row.onclick=()=>{selectedId=t.id;$('result').value=t.content?JSON.stringify(t.content,null,2):'';render(state)};row.append(cancel);$('tasks').append(row)}
+ for(const t of s.tasks){const row=document.createElement('div');row.className='task'+(selectedId===t.id?' active':'');const badge=document.createElement('strong'),title=document.createElement('div'),detail=document.createElement('div');badge.className='task-badge';badge.textContent=t.status+(t.status==='生成中'?' · 已接收 '+(t.raw||'').length+' 字符':'');row.dataset.status=t.status;title.textContent=t.input.refTitle;detail.textContent=(Number.isFinite(t.aboutWords)?'About Us：'+t.aboutWords+' / 3000 英文单词。':'')+(t.error||(t.repairRound&&t.status!=='已完成'?'正在自动修复，第 '+t.repairRound+'/3 轮':''));row.append(badge,title,detail);const cancel=document.createElement('button');cancel.textContent='取消';cancel.disabled=['已完成','已取消'].includes(t.status);cancel.onclick=e=>{e.stopPropagation();call('cancel',t.id)};row.onclick=()=>{selectedId=t.id;$('result').value=t.content||t.draft?JSON.stringify(t.content||t.draft,null,2):t.raw||'';render(state)};row.append(cancel);$('tasks').append(row)}
  const t=s.tasks.find(t=>t.id===selectedId)||s.tasks.find(t=>t.status==='生成中');$('stream').textContent=t?.raw||'';
  $('generatedItems').replaceChildren();for(const item of t?.content?.items||[]){const card=document.createElement('section'),title=document.createElement('h3'),text=document.createElement('textarea'),copy=document.createElement('button');title.textContent=s.promptOptions?.find(p=>p[0]===item.id)?.[1]||item.id;text.value=item.text;text.readOnly=true;text.rows=4;copy.textContent='复制内容';copy.onclick=()=>call('copyGenerated',{taskId:t.id,itemId:item.id});card.append(title,text,copy);$('generatedItems').append(card)}
 
@@ -99,3 +99,7 @@ $('toggleBrowser').onclick=()=>{if(!state.browserVisible)$('connectionSetup').op
 $('exportTask').onclick=()=>call('exportTask',selectedId);
 $('autoUpdate').onchange=()=>call('autoUpdate',$('autoUpdate').checked);
 for(const id of ['checkUpdate','downloadUpdate','restartUpdate'])$(id).onclick=()=>call(id);
+
+$('repairFailed').onclick=async()=>{selectedId=await call('repairFailed',{id:selectedId});call('state')};
+
+$('restoreFailed').onclick=()=>call('restoreFailed');

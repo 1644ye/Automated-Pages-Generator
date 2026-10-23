@@ -18,12 +18,12 @@ async function tick(){if(running||state.paused||closing||capture||captureSaving|
   if(!backendProbe||!backend.queueEnabled)throw Error('请完成后台校准后继续');
   if(t.network)throw Error('后台联网搜索能力尚未验证，本任务未发送。请取消后创建普通任务，或等待联网适配。');
   if(t.request.length>240000)throw Error('提示词超过后台任务上限，未发送');
-  const connection=backendProbe,id=t.id+'-'+(t.repairAttempt||0);
+  const connection=backendProbe,id=t.id+'-'+(t.repairRound||t.repairAttempt||0);
   t.transport='backend';t.track={session:connection.key,id};t.status='生成中';t.started=Date.now();await save();
   if(state.paused||t.status==='已取消'){if(t.status!=='已取消'){t.status='待处理';t.track=null;await save()}return}
   await connection.startTask(id,t.request);
  }
- if(t.status==='生成中'){if(Date.now()-t.started>15*60*1000)throw Error('生成超过15分钟，暂停检查；不会重发');if(t.transport!=='backend')throw Error('旧网页任务不能迁移发送，请取消后重新创建');const r=await backendProbe.taskResult(t.track);if(t.status==='已取消')return;t.raw=r.text;if(r.complete){await backendProbe.releaseTask(t.track);t.track=null;t.sources=r.sources||[];t.networkObserved=r.searchObserved;try{t.content=core.parseResult(t.raw,t)}catch(error){if(t.repairAttempt){t.status='校验失败';t.error=error.message;await save();return}t.repairAttempt=1;t.originalRaw=t.raw;t.validationError=error.message;t.request=`仅修复下面JSON的结构和字段错误，保留正文和事实，不补造内容。无法修复返回 {"_repairStatus":"failed"}。\n原任务：${core.makePrompt(t)}\n错误：${error.message}\n输出数据：${t.raw}\n修复任务标识：${t.id}-repair`;t.track=null;t.status='待处理';await save();return}t.revision=1;t.status='待导出';await save();await finish(t)}else send()}
+ if(t.status==='生成中'){if(Date.now()-t.started>15*60*1000)throw Error('生成超过15分钟，暂停检查；不会重发');if(t.transport!=='backend')throw Error('旧网页任务不能迁移发送，请取消后重新创建');const r=await backendProbe.taskResult(t.track);if(t.status==='已取消')return;t.raw=r.text;if(r.complete){await backendProbe.releaseTask(t.track);t.track=null;t.sources=r.sources||[];t.networkObserved=r.searchObserved;try{t.content=core.parseResult(t.raw,t)}catch(error){if(!core.prepareRepair(t,error)){t.status='校验失败';t.error=error.message;await save();return}t.track=null;t.status='待处理';await save();return}t.revision=1;t.status='待导出';await save();await finish(t)}else send()}
  }catch(error){const t=state.tasks.find(t=>['待处理','生成中','待导出'].includes(t.status));if(t)await pause(t,error)}finally{running=false}}
 function backendStatus(s){const becameReady=s.verified&&!backend.verified;backend=s;if(becameReady){state.browserVisible=false;bounds()}if(s.phase==='blocked'){state.browserVisible=true;bounds();state.paused=true;for(const t of state.tasks.filter(t=>t.status==='生成中')){t.status='待人工处理';t.error=s.reason}save().catch(()=>{})}send()}
 async function ensureConnection(){
@@ -45,6 +45,7 @@ async function finishBackend(){
  backendSaving=(async()=>{try{const report=await current.stop();const folder=join(dir,'diagnostics');await fs.mkdir(folder,{recursive:true});const file=join(folder,'doubao-backend-'+Date.now()+'.json');await fs.writeFile(file,JSON.stringify({appVersion:app.getVersion(),...report},null,2),{flag:'wx'});backend={...report,phase:'saved',queueEnabled:false,file};return file}catch{await current.dispose();backend={phase:'failed',reason:'后台测试报告保存失败，请检查本地数据目录。'};throw Error(backend.reason)}finally{backendProbe=null;backendSaving=null;send()}})();return backendSaving;
 }
 app.whenReady().then(async()=>{core=await import('../shared/core.mjs');dir=app.getPath('userData');await fs.mkdir(dir,{recursive:true});try{state=JSON.parse(await fs.readFile(join(dir,'state.json'),'utf8'))}catch(e){if(e.code!=='ENOENT')throw e;state={tasks:[],exports:[],rules:{},paused:true}}
+ const failed=state.tasks?.filter(t=>t.status==='校验失败'&&t.raw)||[];if(failed.length)await fs.writeFile(join(dir,'failed-results.json'),JSON.stringify(failed));
  resetSession();state.autoUpdate??=true;await save();
  updater=new (require('./updater.cjs').Updater)({version:app.getVersion(),dir,onChange:()=>send()});
  win=new BrowserWindow({width:1500,height:960,minWidth:1100,minHeight:700,webPreferences:{preload:join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false}});
@@ -96,6 +97,13 @@ ipcMain.handle('command',async(event,name,value)=>{if(event.sender!==win?.webCon
  }
  if(name==='resume'){if(captureActive())throw Error('请先结束协议采集；采集期间不会发送队列任务');await driver.ready(false,true);if(captureActive())throw Error('协议采集已开始，队列保持暂停');for(const t of state.tasks.filter(t=>t.status==='待人工处理')){if(t.track){t.status='生成中';t.started=Date.now()}else if(t.content)t.status='待导出';else t.status='待处理';delete t.error}state.paused=false;await save();return}
  if(name==='cancel'){const t=state.tasks.find(t=>t.id===value);if(t&&t.status!=='已完成'){t.status='已取消';t.error='已取消，不会导出或重新发送。';if(t.transport==='backend'&&t.track){state.paused=true;await backendProbe?.cancelTask(t.track)}}if(!state.tasks.some(x=>x.status==='待处理'))initializer?.cancel();await save();return}
+ if(name==='restoreFailed'){let failed;try{failed=JSON.parse(await fs.readFile(join(dir,'failed-results.json'),'utf8'))}catch{throw Error('没有可恢复的上次失败结果')}if(!Array.isArray(failed))throw Error('恢复文件格式错误');for(const old of failed){if(state.tasks.some(t=>t.restoredId===old.id))continue;state.tasks.push({...old,id:randomUUID(),restoredId:old.id,track:null,status:'校验失败'})}await save();return}
+ if(name==='repairFailed'){
+  const previous=state.tasks.find(t=>t.id===value.id);if(!previous||previous.status!=='校验失败')throw Error('请选择校验失败任务');
+  const t=structuredClone(previous);t.id=randomUUID();t.repairRound=0;t.repairAttempt=0;t.track=null;t.export=null;delete t.error;delete t.content;
+  try{t.content=core.parseResult(t.raw,t);t.status='待导出'}catch(error){if(!core.prepareRepair(t,error))throw Error('无法安全自动修复，请编辑完整JSON并保存：'+error.message);t.status='待处理'}
+  state.tasks.push(t);await save();if(backend.queueEnabled)state.paused=false;else ensureConnection().catch(error=>{state.initialization={phase:'attention',message:error.message};send()});return t.id;
+ }
  if(name==='revalidate'){const t=state.tasks.find(t=>t.id===value);if(!t||t.status!=='校验失败')throw Error('请选择校验失败任务');t.content=core.parseResult(t.raw,t);t.revision=(t.revision||0)+1;t.status='待导出';delete t.error;await save();await finish(t);return}
  if(name==='edit'){const t=state.tasks.find(t=>t.id===value.id);if(!t||!['已完成','校验失败'].includes(t.status))throw Error('仅可编辑已结束任务');t.content=t.kind==='marketing'?core.validateMarketing(JSON.parse(value.json),t.options):core.validateAll(JSON.parse(value.json));t.revision=(t.revision||0)+1;t.status='待导出';await save();await finish(t);return}
  if(name==='openExports'){await fs.mkdir(state.exportDir||join(dir,'exports'),{recursive:true});await shell.openPath(state.exportDir||join(dir,'exports'));return}

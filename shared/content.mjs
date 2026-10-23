@@ -14,7 +14,7 @@ export function validateContent(value){
     if(/<(?:script|iframe|object|embed|form|input|button|svg|math|meta|link|base)\b|\son\w+\s*=|javascript\s*:|<style\b|url\s*\(/i.test(p.body_html))throw Error(p.title+' 含不允许的可执行 HTML/资源');
     if(/[【】]/.test(p.body_html))throw Error(p.title+' 含占位符括号');
   }
-  const about=value.pages.find(p=>p.handle==='about-us');if(wordCount(about.body_html)<3000)throw Error('About Us 不足 3000 英文单词');
+  const about=value.pages.find(p=>p.handle==='about-us');if(wordCount(about.body_html)<3000)throw Error('About Us 不足 3000 英文单词（当前 '+wordCount(about.body_html)+'，还差 '+(3000-wordCount(about.body_html))+'）');
   const shipping=value.pages.find(p=>p.handle==='shipping-policy').body_html;
   if(/<table\b|free\s+(?:worldwide\s+|global\s+)?(?:shipping|delivery)|(?:shipping|delivery)\s+is\s+free/i.test(shipping))throw Error('Shipping Policy 不得有表格或免费运输文案');
   if(/cookies?|\b(?:GDPR|CCPA|jurisdiction|statutory)\b/i.test(value.pages.find(p=>p.handle==='privacy-policy').body_html))throw Error('Privacy Policy 含禁用的 Cookie/法律内容');

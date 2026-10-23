@@ -44,10 +44,10 @@ if release is None:
     release=next((r for r in request(api+'/releases?per_page=100') if r['tag_name']==tag),None)
     if release and not release.get('draft'):raise SystemExit('Published release already exists; no changes made')
 head=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
-notes=(root/'docs/release-0.3.6.md').read_text(encoding='utf8')
+notes=(root/f'docs/release-{version}.md').read_text(encoding='utf8')
 try:
     release=release or request(api+'/releases','POST',{'tag_name':tag,'target_commitish':head,'name':'Automated Pages Generator '+tag,'body':notes,'draft':True,'prerelease':False})
-    for file in [package,checksum,root/'docs/release-0.3.6.md']:
+    for file in [package,checksum,root/f'docs/release-{version}.md']:
         prior=next((a for a in release.get('assets',[]) if a['name']==file.name),None)
         if prior:
             assert prior.get('digest')=='sha256:'+hashlib.sha256(file.read_bytes()).hexdigest()
