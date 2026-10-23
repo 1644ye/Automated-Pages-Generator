@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src 'none'"><title>Automated Pages Generator</title><link rel="stylesheet" href="style.css"></head>
 <body><header><b>APG · 页面生成器</b><span>本地工作区 / 豆包 Chromium · <span id="appVersion"></span></span><button id="toggleBrowser">登录 / 显示豆包</button></header>
-<main><p id="notice">正在载入本地工作区…</p>
+<main><section id="liveStatus" aria-label="实时任务状态"><div class="live-heading"><span id="liveBadge"></span><strong id="liveTitle" role="status" aria-live="polite">准备就绪</strong><span id="liveElapsed"></span></div><p id="liveDetail"></p><div id="liveSteps"></div><small id="liveCounts"></small></section><p id="notice">正在载入本地工作区…</p>
 <section><h2>生成工作区</h2><p id="backendStatus" role="status"></p><details id="connectionSetup"><summary>登录与连接设置</summary><button id="reload">重新打开豆包</button>
 <p>登录后勾选内容并点击生成即可。应用自动新建会话并发送三条初始化消息，验证成功后隐藏豆包并处理队列；同一次运行内复用连接。异常处理后点击“启动 / 继续后台队列”。</p>
 <details><summary>手动连接（仅故障排查）</summary><ol><li>在右侧登录并新建普通会话，点击「开始后台校准」。</li><li>依次复制并手动发送连接消息1、2、3；每条都等回答结束，保持同一会话。</li><li>出现「可以测试」后点击「验证后台连接」。这一步无需操作右侧输入框。</li><li>测试通过后保持连接，在下方加入任务，点击「启动 / 继续后台队列」。用完后再断开。</li></ol>

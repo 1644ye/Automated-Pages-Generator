@@ -1,5 +1,23 @@
 const $=id=>document.getElementById(id);
 let state,selectedId;
+let liveKey='',liveSince=Date.now(),lastText='',lastTextAt=Date.now();
+function renderLive(s){
+ const tasks=s.tasks||[],init=s.initialization||{},current=tasks.find(t=>['生成中','待导出'].includes(t.status)),attention=tasks.find(t=>['待人工处理','校验失败'].includes(t.status)),pending=tasks.filter(t=>t.status==='待处理');
+ let title='等待添加任务',detail='填写输入材料并勾选内容，点击生成即可。',stage=-1,tone='idle',task=current;
+ if(init.phase==='running'){title=init.message;detail='正在自动建立连接，请勿在豆包中输入或切换会话。';stage=0;tone='busy'}
+ else if(current){title=current.status==='待导出'?'校验通过 · 正在导出 XLSX':current.repairAttempt?'正在修复返回格式（仅一次）':current.raw?'正在接收生成内容':'请求已发送 · 等待豆包回答';stage=current.status==='待导出'?3:1;tone='busy';detail=current.input.refTitle;if(s.paused){title='队列已暂停 · 当前回答暂存';tone='paused';detail+='。点击继续后读取原任务，不会重新发送。'}}
+ else if(init.phase==='attention'||attention){title='需要处理 · '+(attention?.status||'初始化未完成');detail=init.phase==='attention'?init.message:attention.error;stage=-1;tone='error';task=attention}
+ else if(pending.length){title=s.paused?'队列已暂停':'准备发送下一条任务';detail=pending[0].input.refTitle;stage=0;tone=s.paused?'paused':'busy';task=pending[0]}
+ else if(tasks.some(t=>t.status==='已完成')){title='生成完成 · XLSX 已导出';detail='可在下方导出记录查看文件，或打开导出目录。';stage=4;tone='success'}
+ if(s.backend?.readHealth&&current){detail+='；连接状态读取暂时失败，正在重读原任务。'}
+ const key=[task?.id||'',title].join('|');if(key!==liveKey){liveKey=key;liveSince=Date.now()}
+ const raw=current?.raw||'';if(raw!==lastText){lastText=raw;lastTextAt=Date.now()}
+ $('liveStatus').dataset.tone=tone;$('liveBadge').textContent={busy:'进行中',paused:'已暂停',error:'需处理',success:'已完成',idle:'就绪'}[tone];$('liveTitle').textContent=title;
+ $('liveDetail').textContent=detail;$('liveElapsed').textContent=['busy','paused','error'].includes(tone)?'当前状态 '+Math.floor((Date.now()-liveSince)/1000)+' 秒':'';
+ $('liveSteps').replaceChildren();['初始化连接','生成回答','校验内容','导出 XLSX'].forEach((label,i)=>{const el=document.createElement('span');el.textContent=(i+1)+' '+label;el.className=i<stage?'done':i===stage?'current':'';$('liveSteps').append(el)});
+ $('liveCounts').textContent='共 '+tasks.length+' 条 · 等待 '+pending.length+' · 已完成 '+tasks.filter(t=>t.status==='已完成').length+' · 需处理 '+tasks.filter(t=>['待人工处理','校验失败'].includes(t.status)).length+(current?' · 已接收 '+raw.length+' 字符'+(raw?' · 距正文更新 '+Math.floor((Date.now()-lastTextAt)/1000)+' 秒':''):'');
+}
+
 const names={brand:'品牌名称（选填，仅 SEO）',email:'联系邮箱（选填）',website:'网站地址（选填）',refTitle:'参考网站描述 · 标题',refBody:'参考网站描述 · 内容',discount:'最高折扣 % OFF',date:'文案日期（选填）',details:'产品与服务补充（选填）'};
 for(const [id,title] of Object.entries(names)) {
  const label=document.createElement('label');label.textContent=title;
@@ -35,14 +53,14 @@ function renderBackend(s){
  $('backendPath').textContent=b.file?'报告文件：'+b.file:'';if(s.initialization?.phase==='running'||s.initialization?.phase==='attention')$('backendStatus').textContent=s.initialization.message;
 }
 function render(s) {
- state=s;document.body.classList.toggle('browser-visible',!!s.browserVisible);$('toggleBrowser').textContent=s.browserVisible?'隐藏豆包':'登录 / 显示豆包';$('exportDirectory').textContent=s.exportDir||'';if(s.backend?.queueEnabled)$('connectionSetup').open=false;renderMarketingOptions(s);$('appVersion').textContent='v'+s.version;renderConnection(s);renderBackend(s);
+ state=s;renderLive(s);document.body.classList.toggle('browser-visible',!!s.browserVisible);$('toggleBrowser').textContent=s.browserVisible?'隐藏豆包':'登录 / 显示豆包';$('exportDirectory').textContent=s.exportDir||'';if(s.backend?.queueEnabled)$('connectionSetup').open=false;renderMarketingOptions(s);$('appVersion').textContent='v'+s.version;renderConnection(s);renderBackend(s);
  $('reload').textContent=s.browserStatus==='loading'?'正在连接…点击重试':'重新打开豆包';
  if(!$('fields').children.length)for(const path of s.paths){const label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.value=path;label.append(box,document.createTextNode(path));$('fields').append(label)}
  if(document.activeElement!==$('rules'))$('rules').value=JSON.stringify(s.rules,null,2);
  $('notice').textContent=s.initialization?.phase==='attention'?'初始化未完成：'+s.initialization.message:s.initialization?.phase==='running'?s.initialization.message:(s.paused?'队列已暂停。':'队列运行中。')+(s.browserError||'');
  $('location').textContent='本地数据与登录状态：'+s.dataDir;
  $('tasks').replaceChildren();
- for(const t of s.tasks){const row=document.createElement('div');row.className='task'+(selectedId===t.id?' active':'');row.textContent=t.input.refTitle+' · '+t.status+(t.error?' · '+t.error:'');const cancel=document.createElement('button');cancel.textContent='取消';cancel.onclick=e=>{e.stopPropagation();call('cancel',t.id)};row.onclick=()=>{selectedId=t.id;$('result').value=t.content?JSON.stringify(t.content,null,2):'';render(state)};row.append(cancel);$('tasks').append(row)}
+ for(const t of s.tasks){const row=document.createElement('div');row.className='task'+(selectedId===t.id?' active':'');const badge=document.createElement('strong'),title=document.createElement('div'),detail=document.createElement('div');badge.className='task-badge';badge.textContent=t.status+(t.status==='生成中'?' · 已接收 '+(t.raw||'').length+' 字符':'');row.dataset.status=t.status;title.textContent=t.input.refTitle;detail.textContent=t.error||(t.repairAttempt&&t.status!=='已完成'?'正在自动修复格式，仅一次':'');row.append(badge,title,detail);const cancel=document.createElement('button');cancel.textContent='取消';cancel.disabled=['已完成','已取消'].includes(t.status);cancel.onclick=e=>{e.stopPropagation();call('cancel',t.id)};row.onclick=()=>{selectedId=t.id;$('result').value=t.content?JSON.stringify(t.content,null,2):'';render(state)};row.append(cancel);$('tasks').append(row)}
  const t=s.tasks.find(t=>t.id===selectedId)||s.tasks.find(t=>t.status==='生成中');$('stream').textContent=t?.raw||'';
  $('generatedItems').replaceChildren();for(const item of t?.content?.items||[]){const card=document.createElement('section'),title=document.createElement('h3'),text=document.createElement('textarea'),copy=document.createElement('button');title.textContent=s.promptOptions?.find(p=>p[0]===item.id)?.[1]||item.id;text.value=item.text;text.readOnly=true;text.rows=4;copy.textContent='复制内容';copy.onclick=()=>call('copyGenerated',{taskId:t.id,itemId:item.id});card.append(title,text,copy);$('generatedItems').append(card)}
 
@@ -60,7 +78,7 @@ $('check').onclick=async()=>{$('notice').textContent=await call('check',$('netwo
 $('save').onclick=()=>call('edit',{id:selectedId,json:$('result').value});
 $('jumpRules').onclick=()=>{$('ruleSettings').open=true;$('ruleSettings').scrollIntoView({behavior:'smooth'})};
 $('diagnostics').onclick=async()=>{const file=await call('diagnostics');$('diagnosticPath').textContent='诊断文件已保存：'+file};
-setInterval(()=>{if(state?.protocol?.phase==='recording')renderConnection(state)},1000);
+setInterval(()=>{if(state)renderLive(state);if(state?.protocol?.phase==='recording')renderConnection(state)},1000);
 
 $('resume').onclick=()=>call('resumeBackend');
 
