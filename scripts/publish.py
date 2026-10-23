@@ -25,7 +25,7 @@ def request(url,method='GET',value=None,binary=False):
         if data is not None:
             with tempfile.NamedTemporaryFile(delete=False) as f:f.write(data);path=f.name
             args+=['--data-binary','@'+path]
-        result=subprocess.run(args,input=config,text=True,capture_output=True)
+        result=subprocess.run(args,input=config,text=True,encoding="utf-8",capture_output=True)
         if result.returncode:raise SystemExit('Release network operation failed; curl exit '+str(result.returncode))
         body,status=result.stdout.rsplit('\n',1)
         if int(status)>=400:raise urllib.error.HTTPError(url,int(status),'GitHub API error',None,None)
@@ -34,16 +34,21 @@ def request(url,method='GET',value=None,binary=False):
         if path:os.unlink(path)
 
 api='https://api.github.com/repos/'+repo
+release=None
 try:
-    request(api+'/releases/tags/'+tag)
-    raise SystemExit('Release already exists; no changes made')
+    release=request(api+'/releases/tags/'+tag)
+    if not release.get('draft'):raise SystemExit('Published release already exists; no changes made')
 except urllib.error.HTTPError as e:
     if e.code!=404:raise SystemExit('Release inspection failed: HTTP '+str(e.code))
 head=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
 notes=(root/'docs/release-0.3.6.md').read_text(encoding='utf8')
 try:
-    release=request(api+'/releases','POST',{'tag_name':tag,'target_commitish':head,'name':'Automated Pages Generator '+tag,'body':notes,'draft':True,'prerelease':False})
+    release=release or request(api+'/releases','POST',{'tag_name':tag,'target_commitish':head,'name':'Automated Pages Generator '+tag,'body':notes,'draft':True,'prerelease':False})
     for file in [package,checksum,root/'docs/release-0.3.6.md']:
+        prior=next((a for a in release.get('assets',[]) if a['name']==file.name),None)
+        if prior:
+            assert prior.get('digest')=='sha256:'+hashlib.sha256(file.read_bytes()).hexdigest()
+            continue
         asset=request(release['upload_url'].split('{')[0]+'?name='+file.name,'POST',file.read_bytes(),True)
         assert asset['size']==file.stat().st_size
         if file==package:assert asset.get('digest')=='sha256:'+hashlib.sha256(file.read_bytes()).hexdigest()
