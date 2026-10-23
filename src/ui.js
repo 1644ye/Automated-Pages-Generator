@@ -8,7 +8,7 @@ function renderLive(s){
  else if(current){title=current.status==='待导出'?'校验通过 · 正在导出 XLSX':current.repairAttempt?'正在修复返回格式（仅一次）':current.raw?'正在接收生成内容':'请求已发送 · 等待豆包回答';stage=current.status==='待导出'?3:1;tone='busy';detail=current.input.refTitle;if(s.paused){title='队列已暂停 · 当前回答暂存';tone='paused';detail+='。点击继续后读取原任务，不会重新发送。'}}
  else if(init.phase==='attention'||attention){title='需要处理 · '+(attention?.status||'初始化未完成');detail=init.phase==='attention'?init.message:attention.error;stage=-1;tone='error';task=attention}
  else if(pending.length){title=s.paused?'队列已暂停':'准备发送下一条任务';detail=pending[0].input.refTitle;stage=0;tone=s.paused?'paused':'busy';task=pending[0]}
- else if(tasks.some(t=>t.status==='已完成')){title='生成完成 · XLSX 已导出';detail='可在下方导出记录查看文件，或打开导出目录。';stage=4;tone='success'}
+ else if(tasks.some(t=>t.status==='已完成')){title='生成完成';detail=tasks.some(t=>t.status==='已完成'&&t.kind==='marketing'&&t.exportXlsx===false)?'文案已在应用内生成，可预览、编辑、复制或手动导出 XLSX。':'XLSX 已导出，可在下方导出记录查看文件。';stage=4;tone='success'}
  if(s.backend?.readHealth&&current){detail+='；连接状态读取暂时失败，正在重读原任务。'}
  const key=[task?.id||'',title].join('|');if(key!==liveKey){liveKey=key;liveSince=Date.now()}
  const raw=current?.raw||'';if(raw!==lastText){lastText=raw;lastTextAt=Date.now()}
@@ -53,7 +53,7 @@ function renderBackend(s){
  $('backendPath').textContent=b.file?'报告文件：'+b.file:'';if(s.initialization?.phase==='running'||s.initialization?.phase==='attention')$('backendStatus').textContent=s.initialization.message;
 }
 function render(s) {
- state=s;renderLive(s);document.body.classList.toggle('browser-visible',!!s.browserVisible);$('toggleBrowser').textContent=s.browserVisible?'隐藏豆包':'登录 / 显示豆包';$('exportDirectory').textContent=s.exportDir||'';if(s.backend?.queueEnabled)$('connectionSetup').open=false;renderMarketingOptions(s);$('appVersion').textContent='v'+s.version;renderConnection(s);renderBackend(s);
+ state=s;renderLive(s);const update=s.update||{};$('autoUpdate').checked=s.autoUpdate!==false;$('updateStatus').textContent=(update.message||'尚未检查')+(Number.isFinite(update.percent)?' · '+update.percent+'%':'');$('checkUpdate').disabled=['checking','downloading','extracting'].includes(update.phase);$('downloadUpdate').disabled=update.phase!=='available';$('restartUpdate').disabled=update.phase!=='ready';document.body.classList.toggle('browser-visible',!!s.browserVisible);$('toggleBrowser').textContent=s.browserVisible?'隐藏豆包':'登录 / 显示豆包';$('exportDirectory').textContent=s.exportDir||'';if(s.backend?.queueEnabled)$('connectionSetup').open=false;renderMarketingOptions(s);$('appVersion').textContent='v'+s.version;renderConnection(s);renderBackend(s);
  $('reload').textContent=s.browserStatus==='loading'?'正在连接…点击重试':'重新打开豆包';
  if(!$('fields').children.length)for(const path of s.paths){const label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.value=path;label.append(box,document.createTextNode(path));$('fields').append(label)}
  if(document.activeElement!==$('rules'))$('rules').value=JSON.stringify(s.rules,null,2);
@@ -69,7 +69,7 @@ function render(s) {
 window.addEventListener('unhandledrejection',event=>{$('notice').textContent=event.reason?.message||String(event.reason)});
 desktop.onState(render);call('state');
 function marketingValues(){return {input:Object.fromEntries(Object.keys(names).map(id=>[id,$(id).value.trim()])),options:[...$('marketingOptions').querySelectorAll('input:checked')].map(e=>e.value),focus:[...$('marketingFocus').querySelectorAll('input:checked')].map(e=>e.value),seoInfo:$('seoInfo').value,sourceUrl:$('includeSource').checked?$('sourceUrl').value:''}}
-$('add').onclick=async()=>{const kind=$('generationKind').value,selected=kind==='marketing'?[]:[...$('fields').querySelectorAll('input:checked')].map(e=>e.value);const base=selected.length?JSON.parse($('result').value):null;selectedId=await call('add',{...marketingValues(),kind,selected,base,prompt:$('prompt').value,network:$('network').checked,autoStart:true});call('state')};
+$('add').onclick=async()=>{const kind=$('generationKind').value,selected=kind==='marketing'?[]:[...$('fields').querySelectorAll('input:checked')].map(e=>e.value);const base=selected.length?JSON.parse($('result').value):null;selectedId=await call('add',{...marketingValues(),kind,exportXlsx:$('marketingExport').value==='xlsx',selected,base,prompt:$('prompt').value,network:$('network').checked,autoStart:true});call('state')};
 for(const id of ['pause','reload','openExports','startProtocol','stopProtocol','startBackend','testBackend','stopBackend'])$(id).onclick=()=>call(id);
 for(let i=1;i<=3;i++)$('copyBackend'+i).onclick=async()=>{$('notice').textContent=await call('copyBackendProbe','probe-'+i)};
 for(let i=1;i<=2;i++)$('copyProbe'+i).onclick=async()=>{$('notice').textContent=await call('copyProbe','probe-'+i)};
@@ -95,3 +95,7 @@ $('generationKind').onchange=()=>{const marketing=$('generationKind').value==='m
 $('copyMarketing').onclick=async()=>{$('marketingPromptPreview').textContent=await call('copyMarketingPrompt',marketingValues());$('notice').textContent='提示词已在本地生成并复制。'};
 $('chooseExportDir').onclick=()=>call('chooseExportDir');
 $('toggleBrowser').onclick=()=>{if(!state.browserVisible)$('connectionSetup').open=true;call('toggleBrowser')};
+
+$('exportTask').onclick=()=>call('exportTask',selectedId);
+$('autoUpdate').onchange=()=>call('autoUpdate',$('autoUpdate').checked);
+for(const id of ['checkUpdate','downloadUpdate','restartUpdate'])$(id).onclick=()=>call(id);

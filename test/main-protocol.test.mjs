@@ -21,7 +21,7 @@ function setup({ready=async()=>{},write=async()=>{},start=async()=>{},paused=fal
   async stop(reason){this.phase='stopped';return {reason,requests:[]}}
  }
  const dependencies={
-  electron:{app:{whenReady:()=>({then(){}}),on(){},getVersion:()=> 'synthetic-version'},ipcMain:{handle(name,callback){assert.equal(name,'command');command=callback}},Menu:{},shell:{},clipboard:{writeText(text){counts.clipboard++;assert.match(text,/APG_PROBE_(ONE|TWO)_/);}}},
+  electron:{app:{whenReady:()=>({then(){}}),on(){},getVersion:()=> 'synthetic-version',getAppPath:()=> 'synthetic-app'},ipcMain:{handle(name,callback){assert.equal(name,'command');command=callback}},Menu:{},shell:{},clipboard:{writeText(text){counts.clipboard++;assert.match(text,/APG_PROBE_(ONE|TWO)_/);}}},
   'node:fs/promises':{async writeFile(file,value){written.push({file,value});await write()},async rename(){},async mkdir(){}},
   './auto-initialize.cjs':require('../src/auto-initialize.cjs'),
   './browser.cjs':{BrowserDriver:class{},keys:[]},
@@ -36,11 +36,11 @@ function setup({ready=async()=>{},write=async()=>{},start=async()=>{},paused=fal
   }},
  };
  // The extra accessor exists only in this VM, without changing production exports.
- const access=runInNewContext(mainSource+`\n;({seed(value){win=value.win;view=value.view;driver=value.driver;state=value.state;dir='synthetic-user-data';core={paths:()=>[]};navigation=value.navigation},tick,protocol:()=>protocol})`,{
+ const access=runInNewContext(mainSource+`\n;({seed(value){win=value.win;view=value.view;driver=value.driver;state=value.state;dir='synthetic-user-data';core={paths:()=>[],exportMarketingXlsx:async()=>{value.counts.exported=(value.counts.exported||0)+1;return {file:"synthetic.xlsx"}}};navigation=value.navigation},tick,protocol:()=>protocol})`,{
   require(name){if(Object.hasOwn(dependencies,name))return dependencies[name];if(['node:path','node:crypto'].includes(name))return require(name);throw Error('Unexpected dependency: '+name)},
   __dirname:'synthetic-source-directory',
  },{filename:'main-protocol-unit.cjs'});
- access.seed({win,view,driver,state,navigation:{open(){counts.navigate++}}});
+ access.seed({win,view,driver,state,counts,navigation:{open(){counts.navigate++}}});
  return {state,counts,written,tick:access.tick,protocol:access.protocol,call:(name,value)=>command({sender:win.webContents},name,value)};
 }
 
@@ -96,4 +96,10 @@ test('a pending DOM rule check cannot overlap a new calibration',async()=>{
  const gate=deferred(),app=setup({ready:()=>gate.promise});const check=app.call('check',true);
  await assert.rejects(app.call('startBackend'));await assert.rejects(app.call('startProtocol'));
  gate.resolve();await check;await app.call('startBackend');assert.equal(app.state.paused,true);
+});
+
+test('app-only marketing completion skips XLSX; explicit export creates it',async()=>{
+ const task={id:'m',kind:'marketing',status:'待导出',exportXlsx:false,content:{items:[]}};
+ const app=setup({tasks:[task]});await app.tick();assert.equal(task.status,'已完成');assert.equal(app.counts.exported,undefined);
+ await app.call('exportTask','m');assert.equal(app.counts.exported,1);assert.equal(task.exportXlsx,true);
 });

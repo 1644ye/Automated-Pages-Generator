@@ -1,12 +1,12 @@
-# Automated Pages Generator · v0.3.5
+# Automated Pages Generator · v0.3.6
 
 Windows Chromium 桌面生成器。使用者手动登录豆包，建立后台连接后生成 Shopify 页面、首页文案、SEO 和尺码表，无需 API Key。
 
 ## 安装与打开
 
-完整解压 `Automated-Pages-Generator-0.3.5-win32-x64-experimental.zip`，打开文件夹中的 `Automated-Pages-Generator.exe`。不要单独复制 EXE。无需 DSH 或另装浏览器，当前未代码签名。
+完整解压 `Automated-Pages-Generator-0.3.6-win32-x64-experimental.zip`，打开文件夹中的 `Automated-Pages-Generator.exe`。不要单独复制 EXE。无需 DSH 或另装浏览器，当前未代码签名。
 
-本地入口：`build/0.3.5/Automated-Pages-Generator-win32-x64/Automated-Pages-Generator.exe`。
+本地入口：`build/0.3.6/Automated-Pages-Generator-win32-x64/Automated-Pages-Generator.exe`。
 
 每次启动清空上次任务、流式内容及界面的导出记录，不恢复旧任务；已导出的文件不删除。导出目录设置与本机登录分区继续保留。
 
@@ -64,7 +64,7 @@ npm test
 npm start
 npm run build
 python scripts/archive.py
-Get-FileHash .\build\Automated-Pages-Generator-0.3.5-win32-x64-experimental.zip -Algorithm SHA256
+Get-FileHash .\build\Automated-Pages-Generator-0.3.6-win32-x64-experimental.zip -Algorithm SHA256
 ```
 
 本轮运行 CLI 测试、构建及 ZIP 打包，不启动窗口或控制屏幕。124项离线回归通过，包括选项、严格校验、文案 XLSX、会话清空、导出目录、串行队列和协议解析；真实豆包新功能由用户按 `docs/manual-test.md` 验收。校验文件在 `build/SHA256SUMS.txt`。
@@ -74,3 +74,13 @@ Get-FileHash .\build\Automated-Pages-Generator-0.3.5-win32-x64-experimental.zip 
 校准提示词允许富文本编辑器产生的换行和空白差异，随机标记与其他文字仍须匹配；回答解析绑定实际发出的文本，业务请求继续严格匹配。此修复经过离线测试，真实豆包发送由使用者验证。升级后若输入框保留上次未发送的校准文字，请先手动清空，再点击生成。
 
 实时状态栏固定在工作区顶部，每秒更新当前状态持续时间、接收字符数与距正文更新时间。任务卡片突出异常和生成状态；步骤条不表示预计完成百分比。
+
+### 文案导出与版本更新（0.3.6）
+
+首页 / SEO / 尺码表任务可选择自动导出 XLSX 或仅应用内显示；选择随任务保存，编辑也沿用此设置。仅应用内结果重启后清空，请先复制或点击“将所选文案导出 XLSX”。Shopify 页面任务继续自动导出。
+
+免安装版启动及每 6 小时检查本仓库最新正式 GitHub Release。默认自动下载，可关闭；也可手动检查和下载。仅接受匹配版本的 Windows x64 ZIP，依据 GitHub 资产 SHA256 校验，再解压到用户数据目录 updates 下的独立目录。准备完成后点击“重启使用新版”；所有任务须完成或取消。程序不会自行中断任务。
+
+新版复用同一用户数据目录；旧程序与已有 XLSX 不覆盖。若新版无法启动，可重新打开原 EXE 恢复。切换后使用新版目录里的 EXE，原快捷方式仍指向旧版。未发布正式 Release、缺少兼容包/摘要或网络错误会显示原因，不影响生成。当前尚未代码签名，校验摘要不是独立的发布者签名。首次需手动升级到 0.3.6，早期版本没有更新入口。
+
+更新模块离线校验与打包验证不等同真实升级验证；重启切换与账号复用由使用者验收。
