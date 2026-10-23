@@ -191,7 +191,7 @@ test('business HTTP failure and cancellation invalidate the connection without r
   app.api.startTask({id:'business-1',prompt:'Private business material'});
   if(cancel)app.api.cancelTask('business-1');
   for(let i=0;i<20&&app.plain().phase!=='blocked';i++)await nextTurn();
-  assert.equal(app.plain().phase,'blocked');assert.ok(app.api.taskSnapshot('business-1').error);
+  assert.equal(app.plain().phase,'blocked');assert.ok(app.api.taskSnapshot('business-1').error);if(!cancel){assert.equal(app.plain().failure.kind,'http');assert.equal(app.plain().failure.httpStatus,429);assert.match(app.api.taskSnapshot('business-1').error,/HTTP 429/)}
   assert.throws(()=>app.api.startTask({id:'business-2',prompt:'retry'}));assert.ok(app.calls.length<=4);
   assert.doesNotMatch(JSON.stringify(app.plain()),/Private business material/);app.api.dispose();
  }

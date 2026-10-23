@@ -42,7 +42,7 @@ class Updater{
    const info=releaseInfo(await r.json(),this.version);if(!info){this.emit({phase:'current',message:'当前已是最新正式版本'});return}
    this.info=info;this.emit({phase:'available',version:info.version,message:'发现新版 v'+info.version});
    if(download)await this.prepare(info);
-  }catch(e){this.emit({phase:'error',message:e.message||'更新失败，当前版本不受影响'})}finally{this.busy=false}
+  }catch(e){this.emit({phase:'error',message:/fetch failed|Failed to fetch|net::|timeout|network/i.test(e.message||'')?'无法连接 GitHub 更新服务，请检查网络或开启系统代理后重试；页面生成不受此更新错误影响。':e.message||'更新失败，当前版本不受影响'})}finally{this.busy=false}
  }
  async prepare(info){
   const base=join(this.dir,'updates');await fs.mkdir(base,{recursive:true});

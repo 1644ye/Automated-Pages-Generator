@@ -22,7 +22,7 @@ function installFetchProbe(config, createAnswerRuntime) {
  const readers=new Set();
  const stable=value=>JSON.stringify(value,(_,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
  const snapshot=()=>copy(state);
- function clearMemory(){verifiedRequest=null;if(business&&!business.complete)business.error="后台连接已中断，任务不会自动重发";templates=originals.map(()=>null);answers=originals.map(()=>null);for(const reader of readers)try{Promise.resolve(reader.cancel()).catch(()=>{})}catch{}readers.clear();if(controller)controller.abort();controller=null;clearTimeout(timer);if(window.fetch===wrappedFetch)window.fetch=originalFetch;}
+ function clearMemory(){verifiedRequest=null;if(business&&!business.complete&&!business.error)business.error="后台连接已中断，任务不会自动重发";templates=originals.map(()=>null);answers=originals.map(()=>null);for(const reader of readers)try{Promise.resolve(reader.cancel()).catch(()=>{})}catch{}readers.clear();if(controller)controller.abort();controller=null;clearTimeout(timer);if(window.fetch===wrappedFetch)window.fetch=originalFetch;}
  function block(reason){if(disposed||(state.phase==='passed'&&!config.enableBusiness)||state.phase==='blocked')return;state.phase='blocked';state.reason=reason;state.requestShapeReady=false;clearMemory();}
  function arm(ms,reason){clearTimeout(timer);timer=setTimeout(()=>block(reason),ms);}
  function isActive(){return !disposed&&!['blocked','disposed'].includes(state.phase)&&(state.phase!=='passed'||config.enableBusiness===true);}
@@ -189,7 +189,13 @@ function installFetchProbe(config, createAnswerRuntime) {
    if(!isActive()||!result||business!==record)return;
    verifiedRequest.body.client_meta.last_section_id=result.binding.sectionId;
    state.phase='passed';clearTimeout(timer);controller=null;
-  }).catch(()=>{if(business===record){record.complete=false;record.error='后台回答读取失败，请检查登录、验证码、额度或协议；不会自动重发';block(record.error)}});
+  }).catch(error=>{if(business===record){
+   record.complete=false;
+   const kind=record.parserError?'protocol':record.httpStatus&&record.httpStatus!==200?'http':!record.httpStatus?'network':record.frames?'stream':'response';
+   const reason=kind==='protocol'?'协议校验失败：'+record.parserError:kind==='http'?'豆包返回 HTTP '+record.httpStatus:kind==='network'?'豆包请求连接失败':kind==='stream'?'回答流中断或缺少完整结束信号':'豆包未返回可读取的 SSE 对话流';
+   state.failure={kind,httpStatus:record.httpStatus||null,parserError:record.parserError||'',frames:record.frames||0,bytes:record.bytes||0,characters:record.text.length,signals:record.signals||{},patchDiagnostic:record.patchDiagnostic||null};
+   record.error=reason+'；已暂停，不会自动重发。可导出诊断后检查。';block(record.error);
+  }});
   return {id};
  }
  function taskSnapshot(id){if(!business||business.id!==id)throw Error('任务绑定已失效，不能自动重发');return copy(business)}

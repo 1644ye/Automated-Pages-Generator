@@ -85,7 +85,7 @@ class BackendProbe {
  }
  snapshot() {
   const signature=this.signatureResult();const page=this.page||{};
-  return {readHealth:this.readHealth||null,phase:this.phase==='active'?page.phase||'observing':this.phase,reason:this.reason||page.reason||'',deadline:this.deadline,
+  return {failure:page.failure||null,readHealth:this.readHealth||null,phase:this.phase==='active'?page.phase||'observing':this.phase,reason:this.reason||page.reason||'',deadline:this.deadline,
    probes:this.probes.map(p=>({id:p.id,prompt:p.prompt,...(page.probes||[]).find(v=>v.id===p.id)})),
    requestShapeReady:!!page.requestShapeReady,preSignInput:page.preSignInput===true,
    cursorEvidence:page.cursorEvidence||null,test:page.test||{sent:false,complete:false,exact:false},network:[...this.network.values()],signature,
