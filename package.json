@@ -10,7 +10,7 @@
     "build": "node scripts/build.mjs"
   },
   "devDependencies": {
-    "@electron/packager": "20.3.1",
+    "@electron/packager": "20.3.0",
     "electron": "43.3.0"
   }
 }
