@@ -37,7 +37,15 @@ class AutoInitializer{
  constructor(contents,{createBackend,onProgress=()=>{},sleep=wait,now=Date.now}={}){this.contents=contents;this.createBackend=createBackend;this.onProgress=onProgress;this.sleep=sleep;this.now=now;this.canceled=false}
  cancel(){this.canceled=true}
  check(){if(this.canceled)throw Error('自动初始化已暂停；不会重发校准消息')}
- async page(op,prompt){this.check();let timer;try{return await Promise.race([this.contents.executeJavaScript(`(${connectionPage.toString()})(${JSON.stringify(op)},${JSON.stringify(prompt||'')})`,true),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('初始化网页操作超时，状态不明，不会重试发送')),5000)})])}finally{clearTimeout(timer)}}
+ async page(op,prompt){
+  this.check();this.step=op;let timer;
+  try{
+   const code=`(()=>{try{return {ok:true,value:(${connectionPage.toString()})(${JSON.stringify(op)},${JSON.stringify(prompt||'')})}}catch(error){return {ok:false,error:String(error?.message||'网页执行异常').slice(0,300)}}})()`;
+   const result=await Promise.race([this.contents.executeJavaScript(code,true),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('网页操作超时，状态不明，不会重试发送')),5000)})]);
+   if(!result||result.ok!==true)throw Error(result?.error||'网页未返回有效状态');return result.value;
+  }catch(error){const labels={status:'检查页面',new:'新建会话',fill:'填写校准消息',submit:'发送校准消息'};throw Error((labels[op]||op)+'失败：'+error.message)}finally{clearTimeout(timer)}
+ }
+
  async until(check,ms,message){const deadline=this.now()+ms;while(true){this.check();if(await check())return;if(this.now()>=deadline)throw Error(message);await this.sleep(300)}}
  async run(){
   this.onProgress('正在检查登录并创建初始化会话');await this.page('status');await this.page('new');

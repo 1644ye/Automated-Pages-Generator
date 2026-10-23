@@ -39,7 +39,7 @@ function render(s) {
  $('reload').textContent=s.browserStatus==='loading'?'正在连接…点击重试':'重新打开豆包';
  if(!$('fields').children.length)for(const path of s.paths){const label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.value=path;label.append(box,document.createTextNode(path));$('fields').append(label)}
  if(document.activeElement!==$('rules'))$('rules').value=JSON.stringify(s.rules,null,2);
- $('notice').textContent=(s.paused?'队列已暂停。':'队列运行中。')+(s.browserError||'');
+ $('notice').textContent=s.initialization?.phase==='attention'?'初始化未完成：'+s.initialization.message:s.initialization?.phase==='running'?s.initialization.message:(s.paused?'队列已暂停。':'队列运行中。')+(s.browserError||'');
  $('location').textContent='本地数据与登录状态：'+s.dataDir;
  $('tasks').replaceChildren();
  for(const t of s.tasks){const row=document.createElement('div');row.className='task'+(selectedId===t.id?' active':'');row.textContent=t.input.refTitle+' · '+t.status+(t.error?' · '+t.error:'');const cancel=document.createElement('button');cancel.textContent='取消';cancel.onclick=e=>{e.stopPropagation();call('cancel',t.id)};row.onclick=()=>{selectedId=t.id;$('result').value=t.content?JSON.stringify(t.content,null,2):'';render(state)};row.append(cancel);$('tasks').append(row)}

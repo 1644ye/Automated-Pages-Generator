@@ -15,3 +15,11 @@ test('visible login prompt prevents any page action; generating status remains r
  const call=op=>runInNewContext('('+connectionPage.toString()+')('+JSON.stringify(op)+')',context);
  assert.throws(()=>call('new'),/登录/);buttons=[element('停止生成')];assert.equal(call('status').generating,true);assert.throws(()=>call('fill'),/仍在生成/);
 });
+
+test('page errors cross Electron boundary as structured data with a readable step',async()=>{
+ const contents={async executeJavaScript(code){return runInNewContext(code,{document:{querySelectorAll:()=>[]},getComputedStyle:()=>({visibility:'visible'})})}};
+ const flow=new AutoInitializer(contents);await assert.rejects(flow.page('status'),/检查页面失败：未找到唯一可用/);
+});
+test('page success unwraps the returned status envelope',async()=>{
+ const flow=new AutoInitializer({async executeJavaScript(){return {ok:true,value:{ready:true,empty:true}}}});assert.deepEqual(await flow.page('status'),{ready:true,empty:true});
+});
