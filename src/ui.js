@@ -23,7 +23,7 @@ function renderConnection(s) {
 }
 function renderBackend(s){
  const b=s.backend||{phase:'idle'},active=!['idle','saved','failed'].includes(b.phase),protocolBusy=['starting','recording','saving','stopped'].includes(s.protocol?.phase);
- const labels={idle:'待测试：请先在右侧登录豆包。',starting:'正在安装仅驻留内存的校准工具…',observing:'等待三轮手动校准，请依次发送并等待回答结束。',ready:'可以测试：手动校准通过，点击「测试一次后台调用」。',testing:'正在后台发送并读取一条测试消息，请勿重复发送。',generating:'正在读取当前后台任务，请勿手动发送消息或切换会话。',passed:b.verified?'后台连接已验证。可以加入任务并点击「启动 / 继续后台队列」，请保持连接。':'回答校准通过，但实际请求的新签名尚未验证。',blocked:'已停止：'+(b.reason||'校准条件未满足。'),saved:b.verified?'报告已保存：本次后台连接测试通过。':'报告已保存：本次后台连接尚未通过验证。',failed:b.reason||'测试启动失败。'};
+ const labels={idle:'待测试：请先在右侧登录豆包。',starting:'正在安装仅驻留内存的校准工具…',observing:'等待三轮手动校准，请依次发送并等待回答结束。',ready:'可以测试：手动校准通过，点击「验证后台连接」。',testing:'正在后台发送并读取一条测试消息，请勿重复发送。',generating:'正在读取当前后台任务，请勿手动发送消息或切换会话。',passed:b.verified?'后台连接已验证。可以加入任务并点击「启动 / 继续后台队列」，请保持连接。':'回答校准通过，但实际请求的新签名尚未验证。',blocked:'已停止：'+(b.reason||'校准条件未满足。'),saved:b.verified?'报告已保存：本次后台连接验证通过。':'报告已保存：本次后台连接尚未通过验证。',failed:b.reason||'测试启动失败。'};
  $('backendStatus').textContent=labels[b.phase]||b.reason||'';if(b.readHealth&&b.phase!=='blocked')$('backendStatus').textContent='后台状态读取暂时失败（'+b.readHealth.code+'），正在重读原任务，不会重新发送。';
  if(b.phase==='ready'&&b.cursorEvidence?.mode==='observed-reuse-experiment')$('backendStatus').textContent='可以尝试一次：序号变化无法推导，将沿用最近一次成功请求的原始序号发送新的合成消息。服务器可能拒绝；点击后仅发送一次，失败不重试，业务队列保持暂停。';
  if(b.reason&&b.phase==='saved')$('backendStatus').textContent+=' '+b.reason;
@@ -35,7 +35,7 @@ function renderBackend(s){
  $('backendPath').textContent=b.file?'报告文件：'+b.file:'';
 }
 function render(s) {
- state=s;$('appVersion').textContent='v'+s.version;renderConnection(s);renderBackend(s);
+ state=s;document.body.classList.toggle('browser-visible',!!s.browserVisible);$('toggleBrowser').textContent=s.browserVisible?'隐藏豆包':'登录 / 显示豆包';$('exportDirectory').textContent=s.exportDir||'';if(s.backend?.queueEnabled)$('connectionSetup').open=false;renderMarketingOptions(s);$('appVersion').textContent='v'+s.version;renderConnection(s);renderBackend(s);
  $('reload').textContent=s.browserStatus==='loading'?'正在连接…点击重试':'重新打开豆包';
  if(!$('fields').children.length)for(const path of s.paths){const label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.value=path;label.append(box,document.createTextNode(path));$('fields').append(label)}
  if(document.activeElement!==$('rules'))$('rules').value=JSON.stringify(s.rules,null,2);
@@ -44,11 +44,14 @@ function render(s) {
  $('tasks').replaceChildren();
  for(const t of s.tasks){const row=document.createElement('div');row.className='task'+(selectedId===t.id?' active':'');row.textContent=t.input.refTitle+' · '+t.status+(t.error?' · '+t.error:'');const cancel=document.createElement('button');cancel.textContent='取消';cancel.onclick=e=>{e.stopPropagation();call('cancel',t.id)};row.onclick=()=>{selectedId=t.id;$('result').value=t.content?JSON.stringify(t.content,null,2):'';render(state)};row.append(cancel);$('tasks').append(row)}
  const t=s.tasks.find(t=>t.id===selectedId)||s.tasks.find(t=>t.status==='生成中');$('stream').textContent=t?.raw||'';
+ $('generatedItems').replaceChildren();for(const item of t?.content?.items||[]){const card=document.createElement('section'),title=document.createElement('h3'),text=document.createElement('textarea'),copy=document.createElement('button');title.textContent=s.promptOptions?.find(p=>p[0]===item.id)?.[1]||item.id;text.value=item.text;text.readOnly=true;text.rows=4;copy.textContent='复制内容';copy.onclick=()=>call('copyGenerated',{taskId:t.id,itemId:item.id});card.append(title,text,copy);$('generatedItems').append(card)}
+
  $('exports').replaceChildren();for(const e of s.exports){const p=document.createElement('p');p.textContent=e.at+' · '+e.file+' · '+e.bytes+' bytes';$('exports').append(p)}
 }
 window.addEventListener('unhandledrejection',event=>{$('notice').textContent=event.reason?.message||String(event.reason)});
 desktop.onState(render);call('state');
-$('add').onclick=async()=>{const selected=[...$('fields').querySelectorAll('input:checked')].map(e=>e.value);const base=selected.length?JSON.parse($('result').value):null;selectedId=await call('add',{input:Object.fromEntries(Object.keys(names).map(id=>[id,$(id).value.trim()])),selected,base,prompt:$('prompt').value,network:$('network').checked});call('state')};
+function marketingValues(){return {input:Object.fromEntries(Object.keys(names).map(id=>[id,$(id).value.trim()])),options:[...$('marketingOptions').querySelectorAll('input:checked')].map(e=>e.value),focus:[...$('marketingFocus').querySelectorAll('input:checked')].map(e=>e.value),seoInfo:$('seoInfo').value,sourceUrl:$('includeSource').checked?$('sourceUrl').value:''}}
+$('add').onclick=async()=>{const kind=$('generationKind').value,selected=kind==='marketing'?[]:[...$('fields').querySelectorAll('input:checked')].map(e=>e.value);const base=selected.length?JSON.parse($('result').value):null;selectedId=await call('add',{...marketingValues(),kind,selected,base,prompt:$('prompt').value,network:$('network').checked,autoStart:true});call('state')};
 for(const id of ['pause','reload','openExports','startProtocol','stopProtocol','startBackend','testBackend','stopBackend'])$(id).onclick=()=>call(id);
 for(let i=1;i<=3;i++)$('copyBackend'+i).onclick=async()=>{$('notice').textContent=await call('copyBackendProbe','probe-'+i)};
 for(let i=1;i<=2;i++)$('copyProbe'+i).onclick=async()=>{$('notice').textContent=await call('copyProbe','probe-'+i)};
@@ -62,3 +65,15 @@ setInterval(()=>{if(state?.protocol?.phase==='recording')renderConnection(state)
 $('resume').onclick=()=>call('resumeBackend');
 
 $('revalidate').onclick=async()=>{await call('revalidate',selectedId);const t=state.tasks.find(t=>t.id===selectedId);if(t?.content)$('result').value=JSON.stringify(t.content,null,2)};
+
+function renderMarketingOptions(s){
+ if($('marketingOptions').children.length)return;
+ for(const [id,title] of s.promptOptions||[]){const label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.value=id;box.checked=true;box.onchange=()=>{const boxes=[...$('marketingOptions').querySelectorAll('input')];$('promptAll').checked=boxes.every(b=>b.checked);$('promptAll').indeterminate=boxes.some(b=>b.checked)&&!$('promptAll').checked};label.append(box,document.createTextNode(title));$('marketingOptions').append(label)}
+ for(const [id,title] of s.promptFocusOptions||[]){const label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.value=id;label.append(box,document.createTextNode('着重体现：'+title));$('marketingFocus').append(label)}
+}
+$('promptAll').onchange=()=>{$('marketingOptions').querySelectorAll('input').forEach(e=>e.checked=$('promptAll').checked)};
+$('includeSource').onchange=()=>{$('sourceUrl').disabled=!$('includeSource').checked};
+$('generationKind').onchange=()=>{const marketing=$('generationKind').value==='marketing';$('marketingBuilder').hidden=!marketing;$('fieldSelection').hidden=marketing;$('prompt').value=marketing?'仅生成勾选内容，遵守所选项目规则，不虚构事实。':'根据真实输入生成可导入 Shopify 的英文页面及首页与 SEO 文案。遵守现有字段结构和规则，不虚构事实。'};
+$('copyMarketing').onclick=async()=>{$('marketingPromptPreview').textContent=await call('copyMarketingPrompt',marketingValues());$('notice').textContent='提示词已在本地生成并复制。'};
+$('chooseExportDir').onclick=()=>call('chooseExportDir');
+$('toggleBrowser').onclick=()=>{if(!state.browserVisible)$('connectionSetup').open=true;call('toggleBrowser')};

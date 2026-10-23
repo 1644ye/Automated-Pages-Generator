@@ -22,8 +22,8 @@ function sheetXml(matrix){
   }).join('')+'</row>').join('')+'</sheetData></worksheet>';
 }
 // Pages comes first so the workbook introduces the resources before their menu links.
-function workbook(matrix,menus=menuRows()){
-  const enc=new TextEncoder(),sheets=[{name:'Pages',rows:matrix},{name:'Menus',rows:menus}];
+function workbook(matrix,menus=menuRows(),overrideSheets=null){
+  const enc=new TextEncoder(),sheets=overrideSheets||[{name:'Pages',rows:matrix},{name:'Menus',rows:menus}];
   const files={
     '[Content_Types].xml':'<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'+sheets.map((_,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')+'</Types>',
     '_rels/.rels':'<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',

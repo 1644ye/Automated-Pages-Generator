@@ -9,11 +9,11 @@ function setup({invalid=0,complete=true}={}){
  const win={isDestroyed:()=>false,webContents:{send(){}}};let command;
  const connection={key:'session',async startTask(id,prompt){counts.sent.push(id)},async taskResult(){return {text:'response',complete}},async releaseTask(){counts.released++},async cancelTask(){counts.canceled++}};
  const core={paths:()=>[],makePrompt:()=> 'repair prompt',parseResult(){if(counts.parsed++<invalid)throw Error('invalid schema');return {ok:true}},async exportXlsx(){counts.exports++;return {file:'test.xlsx'}}};
- const deps={electron:{app:{whenReady:()=>({then(){}}),on(){},getVersion:()=> 'test',getAppPath:()=>'.'},ipcMain:{handle(_name,fn){command=fn}}},'node:fs/promises':{async writeFile(_p,text){writes.push(JSON.parse(text))},async rename(){}},'./browser.cjs':{},'./navigation.cjs':{},'./diagnostics.cjs':{},'./protocol-capture.cjs':{},'./backend-probe.cjs':{}};
- const access=runInNewContext(source+`;({seed(v){state=v.state;win=v.win;core=v.core;backendProbe=v.connection;backend={queueEnabled:true};dir='fake'},tick})`,{require:n=>Object.hasOwn(deps,n)?deps[n]:require(n),__dirname:'fake'});
+ const deps={electron:{app:{whenReady:()=>({then(){}}),on(){},getVersion:()=> 'test',getAppPath:()=>'.'},dialog:{async showOpenDialog(){return {canceled:false,filePaths:['chosen-export-dir']}}},ipcMain:{handle(_name,fn){command=fn}}},'node:fs/promises':{async writeFile(_p,text){writes.push(JSON.parse(text))},async rename(){}},'./browser.cjs':{},'./navigation.cjs':{},'./diagnostics.cjs':{},'./protocol-capture.cjs':{},'./backend-probe.cjs':{}};
+ const access=runInNewContext(source+`;({seed(v){state=v.state;win=v.win;core=v.core;backendProbe=v.connection;backend={queueEnabled:true};dir='fake'},tick,resetSession})`,{require:n=>Object.hasOwn(deps,n)?deps[n]:require(n),__dirname:'fake'});
  access.seed({state,win,core,connection});
  const add=(id,extra={})=>{const t={id,status:'待处理',request:'task '+id,selected:[],...extra};state.tasks.push(t);return t};
- return {state,counts,writes,connection,add,tick:access.tick,call:(name,value)=>command({sender:win.webContents},name,value)};
+ return {state,counts,writes,connection,add,tick:access.tick,resetSession:access.resetSession,call:(name,value)=>command({sender:win.webContents},name,value)};
 }
 test('serial queue persists send intent, exports only complete valid results, never repeats completed tasks',async()=>{
  const a=setup();a.add('one');a.add('two');await a.call('resumeBackend');await a.tick();assert.deepEqual(a.counts.sent,['one-0']);assert.equal(a.counts.exports,1);
@@ -29,4 +29,8 @@ test('format errors permit exactly one repair and failed repair never exports',a
 test('network tasks and lost session bindings never auto-send',async()=>{
  const a=setup(),t=a.add('one',{network:true});await a.call('resumeBackend');await a.tick();assert.equal(t.status,'待人工处理');assert.equal(a.counts.sent.length,0);
  t.track={session:'old',id:'one-0'};await a.call('resumeBackend');await a.tick();assert.equal(t.status,'待人工处理');assert.equal(a.counts.sent.length,0);
+});
+
+test('new session clears prior tasks and results but keeps settings; export directory is configurable',async()=>{
+ const a=setup();a.add('old');a.state.exports.push({file:'existing.xlsx'});a.state.exportDir='kept-dir';a.state.rules={custom:'kept'};a.resetSession();assert.equal(a.state.tasks.length,0);assert.equal(a.state.exports.length,0);assert.equal(a.state.exportDir,'kept-dir');assert.equal(a.state.browserVisible,false);assert.equal(a.state.rules.custom,'kept');await a.call('chooseExportDir');assert.equal(a.state.exportDir,'chosen-export-dir');
 });
