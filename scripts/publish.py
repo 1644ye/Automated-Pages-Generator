@@ -3,7 +3,7 @@
 Credentials remain in memory and are never printed or written to disk.
 Existing releases are not modified by this script.
 """
-import json, subprocess, urllib.request, urllib.error, hashlib
+import json, subprocess, urllib.request, urllib.error, hashlib, tempfile, os
 from pathlib import Path
 root=Path(__file__).resolve().parents[1]
 repo='1644ye/Automated-Pages-Generator'
@@ -17,8 +17,22 @@ token=dict(line.split('=',1) for line in credentials.stdout.splitlines() if '=' 
 if not token: raise SystemExit('No local GitHub credential available')
 def request(url,method='GET',value=None,binary=False):
     data=value if binary else json.dumps(value).encode() if value is not None else None
-    req=urllib.request.Request(url,data=data,method=method,headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','Content-Type':'application/octet-stream' if binary else 'application/json','User-Agent':'APG-release'})
-    with urllib.request.urlopen(req,timeout=180) as r:return json.load(r)
+    # Windows system curl uses the OS TLS stack. Auth is supplied on stdin only.
+    args=['curl.exe','--silent','--show-error','--max-time','180','--request',method,'--url',url,'--write-out','\n%{http_code}','--config','-']
+    config='header = "Authorization: Bearer '+token+'"\nheader = "Accept: application/vnd.github+json"\nheader = "Content-Type: '+('application/octet-stream' if binary else 'application/json')+'"\n'
+    path=None
+    try:
+        if data is not None:
+            with tempfile.NamedTemporaryFile(delete=False) as f:f.write(data);path=f.name
+            args+=['--data-binary','@'+path]
+        result=subprocess.run(args,input=config,text=True,capture_output=True)
+        if result.returncode:raise SystemExit('Release network operation failed; curl exit '+str(result.returncode))
+        body,status=result.stdout.rsplit('\n',1)
+        if int(status)>=400:raise urllib.error.HTTPError(url,int(status),'GitHub API error',None,None)
+        return json.loads(body)
+    finally:
+        if path:os.unlink(path)
+
 api='https://api.github.com/repos/'+repo
 try:
     request(api+'/releases/tags/'+tag)
