@@ -15,7 +15,7 @@ function renderConnection(s) {
  $('legacyStatus').textContent=missing.length?'原网页模式尚缺 '+missing.length+' 项定位规则。协议采集不需要这些规则。':'原网页模式已保存规则，仍需实际生成验证。';
  $('startProtocol').disabled=busy;$('stopProtocol').disabled=p.phase!=='recording';
  for(let i=1;i<=2;i++){const probe=p.probes?.find(x=>x.id==='probe-'+i),seen=p.probeResponses?.find(x=>x.id==='probe-'+i);$('copyProbe'+i).disabled=p.phase!=='recording'||!probe;$('probe'+i+'Text').textContent=probe?.prompt||'';$('probe'+i+'Status').textContent=seen?.requests.length?(seen.requests.some(r=>r.failed)?'请求失败，请查看网页。':seen.requests.some(r=>r.httpEnded)?'已收到响应，请核对网页回答。':'已捕获发送，正在读取响应。'):'等待手动发送';}
- $('resume').disabled=!s.backend?.queueEnabled||['starting','recording','saving'].includes(p.phase);$('reload').disabled=busy;$('check').disabled=busy;
+ $('resume').disabled=s.initialization?.phase==='running'||['starting','recording','saving'].includes(p.phase);$('reload').disabled=busy;$('check').disabled=busy;
  const seconds=p.deadline?Math.max(0,Math.ceil((p.deadline-Date.now())/1000)):0;
  const labels={idle:'等待开始校准。请先登录并打开普通测试会话。',starting:'正在启动定向协议采集…',recording:'正在采集：已观察 '+p.count+' 个对话请求，最多还剩 '+seconds+' 秒。请依次手动发送两条测试消息。',saving:'正在结束采集并保存脱敏诊断…',stopped:'正在保存脱敏诊断…',saved:(p.reason==='timeout'?'已达到 180 秒上限并自动保存。':'已保存。')+' 共 '+p.count+' 个对话请求。后台生成仍待适配。',failed:p.error||'采集失败，请重试。'};
  $('protocolStatus').textContent=labels[p.phase]||'';
@@ -32,7 +32,7 @@ function renderBackend(s){
  for(let i=1;i<=3;i++){const p=b.probes?.find(p=>p.id==='probe-'+i);$('copyBackend'+i).disabled=b.phase!=='observing'||!p||p.seen||(i>1&&!b.probes?.[i-2]?.complete);$('backendProbe'+i).textContent=p?.complete&&p?.exact?'回答校准通过':p?.parserError?'校验停止：'+p.parserError:p?.seen?'已观察到请求，等待完整回答。':'等待手动发送';}
  const signature={fresh:'新签名已确认',reused:'检测到旧签名，未通过',missing:'未观察到所需签名',duplicate:'检测到重复请求，未通过','not-observed':'尚无后台请求证据'};
  $('backendTest').textContent=b.test?.sent?'后台测试：'+(b.test.complete&&b.test.exact?'正文校准通过':'尚未通过完整回答校验')+'；'+(signature[b.signature]||'签名未确认')+'。':'尚未发送后台测试。';
- $('backendPath').textContent=b.file?'报告文件：'+b.file:'';
+ $('backendPath').textContent=b.file?'报告文件：'+b.file:'';if(s.initialization?.phase==='running'||s.initialization?.phase==='attention')$('backendStatus').textContent=s.initialization.message;
 }
 function render(s) {
  state=s;document.body.classList.toggle('browser-visible',!!s.browserVisible);$('toggleBrowser').textContent=s.browserVisible?'隐藏豆包':'登录 / 显示豆包';$('exportDirectory').textContent=s.exportDir||'';if(s.backend?.queueEnabled)$('connectionSetup').open=false;renderMarketingOptions(s);$('appVersion').textContent='v'+s.version;renderConnection(s);renderBackend(s);

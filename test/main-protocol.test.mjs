@@ -23,6 +23,7 @@ function setup({ready=async()=>{},write=async()=>{},start=async()=>{},paused=fal
  const dependencies={
   electron:{app:{whenReady:()=>({then(){}}),on(){},getVersion:()=> 'synthetic-version'},ipcMain:{handle(name,callback){assert.equal(name,'command');command=callback}},Menu:{},shell:{},clipboard:{writeText(text){counts.clipboard++;assert.match(text,/APG_PROBE_(ONE|TWO)_/);}}},
   'node:fs/promises':{async writeFile(file,value){written.push({file,value});await write()},async rename(){},async mkdir(){}},
+  './auto-initialize.cjs':require('../src/auto-initialize.cjs'),
   './browser.cjs':{BrowserDriver:class{},keys:[]},
   './navigation.cjs':{Navigation:class{}},
   './diagnostics.cjs':{collectStructure(){}},

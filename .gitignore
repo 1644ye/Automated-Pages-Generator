@@ -15,3 +15,5 @@ diagnostics/
 doubao-protocol-*.json
 doubao-structure-*.json
 doubao-backend-*.json
+
+doubao-auto-init-*.json
