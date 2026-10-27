@@ -14,3 +14,10 @@ test('read errors and non-HTML content never produce source data',async()=>{
  await assert.rejects(readSource('https://example.com',async()=>new Response('{}',{headers:{'content-type':'application/json'}}),resolver),/HTML/);
  await assert.rejects(readSource('https://example.com',async()=>new Response('<p>Empty</p>',{headers:{'content-type':'text/html'}}),resolver),/信息过少/);
 });
+test('closed connection retries read-only GET once then returns a clear pre-generation error',async()=>{
+ let calls=0;await assert.rejects(readSource('https://example.com',async()=>{calls++;throw Error('net::ERR_CONNECTION_CLOSED')},resolver),/豆包尚未收到/);assert.equal(calls,2);
+ calls=0;await assert.rejects(readSource('https://example.com',async()=>{calls++;return new Response('',{status:429})},resolver),/429/);assert.equal(calls,1);
+});
+test('transient GET failure can recover without repeating a model request',async()=>{
+ let calls=0;const result=await readSource('https://example.com',async()=>{if(++calls===1)throw Error('net::ERR_CONNECTION_CLOSED');return new Response('<meta name="description" content="Actual useful product information for customers, from the website."><title>Actual</title>',{headers:{'content-type':'text/html'}})},resolver);assert.equal(calls,2);assert.equal(result.title,'Actual');
+});

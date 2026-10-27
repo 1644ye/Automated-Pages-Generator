@@ -1,5 +1,5 @@
 const $=id=>document.getElementById(id);
-let state,selectedId;
+let state,selectedId;const filledSeoTasks=new Set();
 let liveKey='',liveSince=Date.now(),lastText='',lastTextAt=Date.now();
 function renderLive(s){
  const tasks=s.tasks||[],init=s.initialization||{},current=tasks.find(t=>['生成中','待导出'].includes(t.status)),attention=tasks.find(t=>['待人工处理','校验失败'].includes(t.status)),pending=tasks.filter(t=>t.status==='待处理');
@@ -25,7 +25,7 @@ for(const [id,title] of Object.entries(names)) {
  if(id==='discount'){el.type='number';el.min=1;el.max=100}if(id==='date')el.type='date';
  label.append(el);$('inputs').append(label);
 }
-async function call(name,v){try{return await desktop.call(name,v)}catch(e){$('notice').textContent=e.message;throw e}}
+async function call(name,v){try{return await desktop.call(name,v)}catch(e){const message=String(e.message||e).replace(/^Error invoking remote method 'command': Error: /,'');$('notice').textContent=message;throw Error(message)}}
 function renderConnection(s) {
  const p=s.protocol||{phase:'idle',count:0};const backendBusy=!['idle','saved','failed'].includes(s.backend?.phase||'idle');const busy=['starting','recording','saving','stopped'].includes(p.phase)||backendBusy;
  const missing=s.missingRules||[];const pending=s.tasks.filter(t=>t.status==='待处理').length;
@@ -53,7 +53,7 @@ function renderBackend(s){
  $('backendPath').textContent=b.file?'报告文件：'+b.file:'';if(s.initialization?.phase==='running'||s.initialization?.phase==='attention')$('backendStatus').textContent=s.initialization.message;
 }
 function render(s) {
- state=s;renderLive(s);const update=s.update||{};$('autoUpdate').checked=s.autoUpdate!==false;$('updateStatus').textContent=(update.message||'尚未检查')+(Number.isFinite(update.percent)?' · '+update.percent+'%':'');$('checkUpdate').disabled=['checking','downloading','extracting'].includes(update.phase);$('downloadUpdate').disabled=update.phase!=='available';$('restartUpdate').disabled=update.phase!=='ready';document.body.classList.toggle('browser-visible',!!s.browserVisible);$('toggleBrowser').textContent=s.browserVisible?'隐藏豆包':'登录 / 显示豆包';$('exportDirectory').textContent=s.exportDir||'';if(s.backend?.queueEnabled)$('connectionSetup').open=false;renderMarketingOptions(s);$('appVersion').textContent='v'+s.version;renderConnection(s);renderBackend(s);
+ state=s;const fill=nextSeoFill(s.tasks,filledSeoTasks);if(fill){$('refTitle').value=fill.title;$('refBody').value=fill.description;$('website').value=fill.url;filledSeoTasks.add(fill.id);$('urlSeoStatus').textContent='豆包生成完成，已自动填入下方参考标题和内容，可继续生成页面。'}renderLive(s);const update=s.update||{};$('autoUpdate').checked=s.autoUpdate!==false;$('updateStatus').textContent=(update.message||'尚未检查')+(Number.isFinite(update.percent)?' · '+update.percent+'%':'');$('checkUpdate').disabled=['checking','downloading','extracting'].includes(update.phase);$('downloadUpdate').disabled=update.phase!=='available';$('restartUpdate').disabled=update.phase!=='ready';document.body.classList.toggle('browser-visible',!!s.browserVisible);$('toggleBrowser').textContent=s.browserVisible?'隐藏豆包':'登录 / 显示豆包';$('exportDirectory').textContent=s.exportDir||'';if(s.backend?.queueEnabled)$('connectionSetup').open=false;renderMarketingOptions(s);$('appVersion').textContent='v'+s.version;renderConnection(s);renderBackend(s);
  $('reload').textContent=s.browserStatus==='loading'?'正在连接…点击重试':'重新打开豆包';
  if(!$('fields').children.length)for(const path of s.paths){const label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.value=path;label.append(box,document.createTextNode(path));$('fields').append(label)}
  if(document.activeElement!==$('rules'))$('rules').value=JSON.stringify(s.rules,null,2);
@@ -104,4 +104,4 @@ $('repairFailed').onclick=async()=>{selectedId=await call('repairFailed',{id:sel
 
 $('restoreFailed').onclick=()=>call('restoreFailed');
 
-$('generateUrlSeo').onclick=async()=>{const button=$('generateUrlSeo');button.disabled=true;$('urlSeoStatus').textContent='正在读取网页…';try{selectedId=await call('urlSeo',{url:$('seoUrl').value.trim(),exportXlsx:$('urlSeoExport').checked});$('urlSeoStatus').textContent='网页已读取，SEO任务已加入队列。';call('state')}catch(e){$('urlSeoStatus').textContent=e.message}finally{button.disabled=false}};
+$('generateUrlSeo').onclick=async()=>{const button=$('generateUrlSeo');button.disabled=true;$('urlSeoStatus').textContent='正在读取网页；连接意外关闭时最多重试一次…';try{selectedId=await call('urlSeo',{url:$('seoUrl').value.trim(),exportXlsx:$('urlSeoExport').checked});if(!filledSeoTasks.has(selectedId))$('urlSeoStatus').textContent='网页已读取，正在等待豆包生成；成功后自动填入下方标题和内容。';call('state')}catch(e){$('urlSeoStatus').textContent=e.message}finally{button.disabled=false}};

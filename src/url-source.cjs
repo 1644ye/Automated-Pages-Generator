@@ -27,7 +27,7 @@ function extractPage(html,url){
  if(text.length<80&&description.length<30)throw Error('网页可读取信息过少，可能需要登录、验证码或由 JavaScript 加载；请手动填写参考信息');
  return {url,title:title.slice(0,500),description:description.slice(0,2000),text,readAt:new Date().toISOString()};
 }
-async function readSource(value,fetcher,resolver=lookup){
+async function readOnce(value,fetcher,resolver=lookup){
  let url=value;const signal=AbortSignal.timeout(25000);
  for(let i=0;i<5;i++){
   url=await checkedUrl(url,resolver);const r=await fetcher(url,{redirect:'manual',credentials:'omit',signal});
@@ -39,5 +39,16 @@ async function readSource(value,fetcher,resolver=lookup){
   return extractPage(html,url);
  }
  throw Error('网页重定向次数过多');
+}
+function transient(error){return /ERR_CONNECTION_(?:CLOSED|RESET|ABORTED)|ECONNRESET|fetch failed|Failed to fetch/i.test(error?.message||'')}
+async function readSource(value,fetcher,resolver=lookup){
+ for(let attempt=0;attempt<2;attempt++)try{return await readOnce(value,fetcher,resolver)}catch(error){
+  if(attempt===0&&transient(error))continue;
+  const message=String(error?.message||'');
+  if(transient(error))throw Error('读取网站时连接被关闭或重置，已重试一次。请检查网址、网络或系统代理后再试；豆包尚未收到本次SEO任务。');
+  if(/timeout|timed out|aborted/i.test(message))throw Error('读取网站超时，请稍后重试；豆包尚未收到本次SEO任务。');
+  if(/ENOTFOUND|EAI_AGAIN|ERR_NAME_NOT_RESOLVED/i.test(message))throw Error('无法解析网站域名，请检查网址和网络；豆包尚未收到本次SEO任务。');
+  throw error;
+ }
 }
 module.exports={readSource,extractPage,checkedUrl,publicAddress};

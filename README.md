@@ -1,12 +1,12 @@
-# Automated Pages Generator · v0.3.9
+# Automated Pages Generator · v0.3.10
 
 Windows Chromium 桌面生成器。使用者手动登录豆包，建立后台连接后生成 Shopify 页面、首页文案、SEO 和尺码表，无需 API Key。
 
 ## 安装与打开
 
-完整解压 `Automated-Pages-Generator-0.3.9-win32-x64-experimental.zip`，打开文件夹中的 `Automated-Pages-Generator.exe`。不要单独复制 EXE。无需 DSH 或另装浏览器，当前未代码签名。
+完整解压 `Automated-Pages-Generator-0.3.10-win32-x64-experimental.zip`，打开文件夹中的 `Automated-Pages-Generator.exe`。不要单独复制 EXE。无需 DSH 或另装浏览器，当前未代码签名。
 
-本地入口：`build/0.3.9/Automated-Pages-Generator-win32-x64/Automated-Pages-Generator.exe`。
+本地入口：`build/0.3.10/Automated-Pages-Generator-win32-x64/Automated-Pages-Generator.exe`。
 
 每次启动清空上次任务、流式内容及界面的导出记录，不恢复旧任务；已导出的文件不删除。导出目录设置与本机登录分区继续保留。
 
@@ -64,7 +64,7 @@ npm test
 npm start
 npm run build
 python scripts/archive.py
-Get-FileHash .\build\Automated-Pages-Generator-0.3.9-win32-x64-experimental.zip -Algorithm SHA256
+Get-FileHash .\build\Automated-Pages-Generator-0.3.10-win32-x64-experimental.zip -Algorithm SHA256
 ```
 
 本轮运行 CLI 测试、构建及 ZIP 打包，不启动窗口或控制屏幕。124项离线回归通过，包括选项、严格校验、文案 XLSX、会话清空、导出目录、串行队列和协议解析；真实豆包新功能由用户按 `docs/manual-test.md` 验收。校验文件在 `build/SHA256SUMS.txt`。
@@ -104,3 +104,9 @@ About Us 初次生成及扩写目标均为4000个英文单词，验收仍至少3
 在“网址生成SEO”输入公开网址，点击“读取网址并通过豆包生成SEO”。程序读取该URL公开HTML（不执行网页脚本、不带登录Cookie），将实际网页标题、描述和正文作为参考，使用已登录豆包生成首页SEO Title和Meta Description。默认应用内显示，可选XLSX。Title不超过70字符，Description不超过180字符；生成目标分别50–60及140–160。结果可编辑复制，长度超限自动修复。网页验证、登录、反爬或动态渲染导致读取失败时停止并提示，不编造网页内容。无需API Key；此功能不等同豆包联网搜索。
 
 145项离线回归通过，真实豆包生成由用户测试。
+
+### 0.3.10 网址读取与自动填充
+
+网址连接关闭/重置时仅重试一次公开网页GET，不重发豆包任务。仍失败显示明确网络提示，HTTP拒绝/限流不重试。站点持续断开需要检查网址、网络或系统代理，不能保证所有网站可读取。
+
+豆包SEO结果校验成功后，自动填入下方参考标题、参考内容和网站地址。只应用最新网址任务且只填一次，后续刷新不覆盖手动修改。失败或不完整结果不填入。149项离线测试通过；真实站点和豆包生成由使用者验证。
