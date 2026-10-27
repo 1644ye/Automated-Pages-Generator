@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {parseResult} from '../shared/core.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
@@ -36,11 +37,11 @@ function setup({ready=async()=>{},write=async()=>{},start=async()=>{},paused=fal
   }},
  };
  // The extra accessor exists only in this VM, without changing production exports.
- const access=runInNewContext(mainSource+`\n;({seed(value){win=value.win;view=value.view;driver=value.driver;state=value.state;dir='synthetic-user-data';core={paths:()=>[],exportMarketingXlsx:async()=>{value.counts.exported=(value.counts.exported||0)+1;return {file:"synthetic.xlsx"}}};navigation=value.navigation},tick,protocol:()=>protocol})`,{
+ const access=runInNewContext(mainSource+`\n;({seed(value){win=value.win;view=value.view;driver=value.driver;state=value.state;dir='synthetic-user-data';core={paths:()=>[],parseResult:value.parseResult,exportMarketingXlsx:async()=>{value.counts.exported=(value.counts.exported||0)+1;return {file:"synthetic.xlsx"}}};navigation=value.navigation},tick,protocol:()=>protocol})`,{
   require(name){if(Object.hasOwn(dependencies,name))return dependencies[name];if(['node:path','node:crypto'].includes(name))return require(name);throw Error('Unexpected dependency: '+name)},
   __dirname:'synthetic-source-directory',
  },{filename:'main-protocol-unit.cjs'});
- access.seed({win,view,driver,state,counts,navigation:{open(){counts.navigate++}}});
+ access.seed({win,view,driver,state,counts,parseResult,navigation:{open(){counts.navigate++}}});
  return {state,counts,written,tick:access.tick,protocol:access.protocol,call:(name,value)=>command({sender:win.webContents},name,value)};
 }
 
@@ -102,4 +103,11 @@ test('app-only marketing completion skips XLSX; explicit export creates it',asyn
  const task={id:'m',kind:'marketing',status:'待导出',exportXlsx:false,content:{items:[]}};
  const app=setup({tasks:[task]});await app.tick();assert.equal(task.status,'已完成');assert.equal(app.counts.exported,undefined);
  await app.call('exportTask','m');assert.equal(app.counts.exported,1);assert.equal(task.exportXlsx,true);
+});
+
+test('manual SEO import validates first, preserves original and sends no model request',async()=>{
+ const original={id:'url',kind:'marketing',urlSource:{url:'https://example.com',mode:'doubao-url'},options:['home-title','home-description'],exportXlsx:false,status:'待人工处理'};
+ const a=setup({paused:true,tasks:[original]});await assert.rejects(a.call('importSeo',{id:'url',json:'{"items":['}));assert.equal(a.state.tasks.length,1);
+ const id=await a.call('importSeo',{id:'url',json:JSON.stringify({items:[{id:'home-title',text:'Title'},{id:'home-description',text:'Description'}]})});
+ const added=a.state.tasks.find(t=>t.id===id);assert.equal(added.status,'已完成');assert.equal(added.content.items[0].text,'Title');assert.equal(original.status,'待人工处理');assert.equal(a.counts.send,0);assert.equal(a.counts.exported,undefined);
 });
