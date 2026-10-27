@@ -17,3 +17,19 @@ test('repair addresses forbidden page content and stops at budget',()=>{
 test('size chart repair preserves other selected copy',()=>{
  const task={id:'m',kind:'marketing',input:{},options:['home-title','size-chart'],raw:JSON.stringify({items:[{id:'home-title',text:'Keep my title'},{id:'size-chart',text:'<style>bad</style>'}]})};let failure;try{parseResult(task.raw,task)}catch(e){failure=e}assert.ok(prepareRepair(task,failure));const result=parseResult(JSON.stringify({items:[{id:'size-chart',text:'<p>Size details unavailable.</p>'}]}),task);assert.equal(result.items[0].text,'Keep my title');
 });
+import {wordCount,validateContent,BUSINESS_RULES} from '../shared/content.mjs';
+import {makePrompt} from '../shared/core.mjs';
+test('visible English words exclude markup, comments, entities and pure numbers',()=>{
+ assert.equal(wordCount('<p title="not counted">Hello&nbsp;world don&#39;t well-made 123</p><!-- hidden words --><style>fake words</style>'),4);
+ assert.match(BUSINESS_RULES,/4000/);const data=fixture();data.pages[0].body_html='<p>'+('word '.repeat(3000))+'</p>';assert.doesNotThrow(()=>validateContent(data));data.pages[0].body_html='<p>'+('word '.repeat(2999))+'</p>';assert.throws(()=>validateContent(data),/不足 3000/);
+});
+test('targeted HTML repair avoids JSON escaping and rejects truncated HTML',()=>{
+ const task={id:'html',selected:[],input:{},raw:'',draft:fixture()};task.draft.pages[0].body_html='<p>short</p>';assert.ok(prepareRepair(task,Error('About Us 不足 3000 英文单词')));assert.equal(task.repairHtml,true);assert.match(task.request,/4000/);
+ const result=parseResult('<p>'+('word '.repeat(3000))+'</p>',task);assert.deepEqual(result.pages.slice(1),fixture().pages.slice(1));assert.throws(()=>parseResult('<p>'+('word '.repeat(3000)),task),/闭合/);
+ assert.throws(()=>parseResult('{"fields":',task),/JSON/);assert.equal(task.aboutWordsStale,true);
+});
+test('URL SEO uses captured page facts in Doubao prompt and validates result lengths',()=>{
+ const task={id:'url',kind:'marketing',options:['home-title','home-description'],urlSource:{url:'https://example.com',text:'actual site facts'}};
+ assert.match(makePrompt(task),/actual site facts/);assert.doesNotMatch(makePrompt(task),/全球免运费/);
+ assert.throws(()=>parseResult(JSON.stringify({items:[{id:'home-title',text:'x'.repeat(71)},{id:'home-description',text:'description'}]}),task),/超过70/);
+});
