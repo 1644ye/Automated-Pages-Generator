@@ -186,3 +186,7 @@ test('unsupported patch diagnostic exposes bounded shape, never unknown keys or 
  const result=run(values);assert.equal(result.complete,false);assert.equal(result.patchDiagnostic.otherFieldCount,1);
  assert.ok(!JSON.stringify(result.patchDiagnostic).includes('private'));assert.deepEqual(result.patchDiagnostic.knownFields,[]);
 });
+test('unsupported block diagnosis exposes structure but no payload, IDs or unknown key text',()=>{
+ const stream=new AnswerStream(options);stream.block({block_type:12345,block_id:'PRIVATE_ID',content:{text_block:{text:'PRIVATE_BODY'},PRIVATE_SECRET:'PRIVATE_VALUE'},is_finish:false,patch_type:4},true);
+ const result=stream.snapshot();assert.match(result.error,/未支持/);assert.equal(result.blockDiagnostic.blockType,12345);assert.equal(result.blockDiagnostic.shape.fields.content.unknownKeyCount,1);assert.doesNotMatch(JSON.stringify(result.blockDiagnostic),/PRIVATE/);assert.equal(result.complete,false);
+});

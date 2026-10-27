@@ -1,12 +1,12 @@
-# Automated Pages Generator · v0.3.11
+# Automated Pages Generator · v0.3.12
 
 Windows Chromium 桌面生成器。使用者手动登录豆包，建立后台连接后生成 Shopify 页面、首页文案、SEO 和尺码表，无需 API Key。
 
 ## 安装与打开
 
-完整解压 `Automated-Pages-Generator-0.3.11-win32-x64-experimental.zip`，打开文件夹中的 `Automated-Pages-Generator.exe`。不要单独复制 EXE。无需 DSH 或另装浏览器，当前未代码签名。
+完整解压 `Automated-Pages-Generator-0.3.12-win32-x64-experimental.zip`，打开文件夹中的 `Automated-Pages-Generator.exe`。不要单独复制 EXE。无需 DSH 或另装浏览器，当前未代码签名。
 
-本地入口：`build/0.3.11/Automated-Pages-Generator-win32-x64/Automated-Pages-Generator.exe`。
+本地入口：`build/0.3.12/Automated-Pages-Generator-win32-x64/Automated-Pages-Generator.exe`。
 
 每次启动清空上次任务、流式内容及界面的导出记录，不恢复旧任务；已导出的文件不删除。导出目录设置与本机登录分区继续保留。
 
@@ -64,7 +64,7 @@ npm test
 npm start
 npm run build
 python scripts/archive.py
-Get-FileHash .\build\Automated-Pages-Generator-0.3.11-win32-x64-experimental.zip -Algorithm SHA256
+Get-FileHash .\build\Automated-Pages-Generator-0.3.12-win32-x64-experimental.zip -Algorithm SHA256
 ```
 
 本轮运行 CLI 测试、构建及 ZIP 打包，不启动窗口或控制屏幕。124项离线回归通过，包括选项、严格校验、文案 XLSX、会话清空、导出目录、串行队列和协议解析；真实豆包新功能由用户按 `docs/manual-test.md` 验收。校验文件在 `build/SHA256SUMS.txt`。
@@ -116,3 +116,11 @@ About Us 初次生成及扩写目标均为4000个英文单词，验收仍至少3
 输入网址点击“交给豆包读取并生成 SEO”。程序不再预先请求目标网站，只校验URL格式，然后将网址和生成要求提交到已登录豆包后台队列。豆包生成标题和描述后由程序校验，并自动填入下方参考标题、内容、网站地址；可选XLSX。
 
 网页访问依赖豆包当前实际能力，本版本不代表已经验证后台联网工具。提示词要求访问失败时返回 unavailable，程序停止且不自动修复/猜写。正常回答也不标为已独立联网核实；若协议不支持网页工具事件仍暂停并记录诊断。真实站点生成由使用者测试。150项离线回归通过。
+
+### 0.3.12 未知内容块诊断与手动导入
+
+自动读取失败会在 diagnostics/doubao-read-failure-*.json 中附带 blockDiagnostic，包含块类型、受限结构字段名、值类型/长度、结束标志；不包含正文、ID值、Cookie或签名。未知内容块仍暂停，不忽略、不拼接其他历史回答。真实新格式的支持需要用户的新诊断，不能宣称已修复自动读取。
+
+右侧豆包已生成完整SEO JSON时：在任务列表选择对应的网址任务，将完整JSON粘贴到“结果预览与编辑”，点击“导入豆包完整SEO回答并自动填充”。本地校验两个项目及长度后自动填入下方参考信息，按原任务设置导出；不会发送豆包请求。失败或不完整JSON不会填充。升级后可用“恢复上次失败结果”恢复待人工处理的网址任务；工作区默认仍为空。打开诊断文件夹按钮方便提交报告。
+
+151项离线测试通过；实际豆包新内容块仍待用户结构报告。

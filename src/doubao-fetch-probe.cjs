@@ -126,7 +126,7 @@ function installFetchProbe(config, createAnswerRuntime) {
   if(!/^text\/event-stream(?:\s*;|$)/i.test(response.headers.get('content-type')||''))throw Error('返回不是 SSE 对话流，请手动检查网页状态');
   if(!response.body?.getReader)throw Error('网页响应不可流式读取');
   const parser=new AnswerStream({localMessageId:body.messages[0].local_message_id,conversationId:body.client_meta.conversation_id,botId:body.client_meta.bot_id,prompt:expected.prompt,expectedText:expected.marker,...(profile?{patchProfile:profile}:{})});
-  const progress=()=>{const value=parser.snapshot();if(record===business)record.text=value.text;record.parserError=value.error;record.frames=value.frames;record.bytes=value.bytes;record.profile=copy(value.profile);record.patchDiagnostic=value.patchDiagnostic;record.signals=Object.fromEntries(['echo','blockFinished','messageFinished','messageEnd','answerEnd','terminalEnd'].map(name=>[name,!!value.signals?.[name]]));return value};
+  const progress=()=>{const value=parser.snapshot();if(record===business)record.text=value.text;record.parserError=value.error;record.frames=value.frames;record.bytes=value.bytes;record.profile=copy(value.profile);record.patchDiagnostic=value.patchDiagnostic;record.blockDiagnostic=value.blockDiagnostic;record.signals=Object.fromEntries(['echo','blockFinished','messageFinished','messageEnd','answerEnd','terminalEnd'].map(name=>[name,!!value.signals?.[name]]));return value};
   const reader=response.body.getReader();readers.add(reader);
   try{
    while(isActive()){
@@ -193,7 +193,7 @@ function installFetchProbe(config, createAnswerRuntime) {
    record.complete=false;
    const kind=record.parserError?'protocol':record.httpStatus&&record.httpStatus!==200?'http':!record.httpStatus?'network':record.frames?'stream':'response';
    const reason=kind==='protocol'?'协议校验失败：'+record.parserError:kind==='http'?'豆包返回 HTTP '+record.httpStatus:kind==='network'?'豆包请求连接失败':kind==='stream'?'回答流中断或缺少完整结束信号':'豆包未返回可读取的 SSE 对话流';
-   state.failure={kind,httpStatus:record.httpStatus||null,parserError:record.parserError||'',frames:record.frames||0,bytes:record.bytes||0,characters:record.text.length,signals:record.signals||{},patchDiagnostic:record.patchDiagnostic||null};
+   state.failure={kind,httpStatus:record.httpStatus||null,parserError:record.parserError||'',frames:record.frames||0,bytes:record.bytes||0,characters:record.text.length,signals:record.signals||{},patchDiagnostic:record.patchDiagnostic||null,blockDiagnostic:record.blockDiagnostic||null};
    record.error=reason+'；已暂停，不会自动重发。可导出诊断后检查。';block(record.error);
   }});
   return {id};

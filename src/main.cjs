@@ -45,7 +45,7 @@ async function finishBackend(){
  backendSaving=(async()=>{try{const report=await current.stop();const folder=join(dir,'diagnostics');await fs.mkdir(folder,{recursive:true});const file=join(folder,'doubao-backend-'+Date.now()+'.json');await fs.writeFile(file,JSON.stringify({appVersion:app.getVersion(),...report},null,2),{flag:'wx'});backend={...report,phase:'saved',queueEnabled:false,file};return file}catch{await current.dispose();backend={phase:'failed',reason:'后台测试报告保存失败，请检查本地数据目录。'};throw Error(backend.reason)}finally{backendProbe=null;backendSaving=null;send()}})();return backendSaving;
 }
 app.whenReady().then(async()=>{core=await import('../shared/core.mjs');dir=app.getPath('userData');await fs.mkdir(dir,{recursive:true});try{state=JSON.parse(await fs.readFile(join(dir,'state.json'),'utf8'))}catch(e){if(e.code!=='ENOENT')throw e;state={tasks:[],exports:[],rules:{},paused:true}}
- const failed=state.tasks?.filter(t=>t.status==='校验失败'&&t.raw)||[];if(failed.length)await fs.writeFile(join(dir,'failed-results.json'),JSON.stringify(failed));
+ const failed=state.tasks?.filter(t=>['校验失败','待人工处理'].includes(t.status)&&(t.raw||t.urlSource))||[];if(failed.length)await fs.writeFile(join(dir,'failed-results.json'),JSON.stringify(failed));
  resetSession();state.autoUpdate??=true;await save();
  updater=new (require('./updater.cjs').Updater)({version:app.getVersion(),dir,fetcher:(url,options)=>net.fetch(url,options),onChange:()=>send()});
  win=new BrowserWindow({width:1500,height:960,minWidth:1100,minHeight:700,webPreferences:{preload:join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false}});
@@ -103,7 +103,16 @@ ipcMain.handle('command',async(event,name,value)=>{if(event.sender!==win?.webCon
  }
  if(name==='resume'){if(captureActive())throw Error('请先结束协议采集；采集期间不会发送队列任务');await driver.ready(false,true);if(captureActive())throw Error('协议采集已开始，队列保持暂停');for(const t of state.tasks.filter(t=>t.status==='待人工处理')){if(t.track){t.status='生成中';t.started=Date.now()}else if(t.content)t.status='待导出';else t.status='待处理';delete t.error}state.paused=false;await save();return}
  if(name==='cancel'){const t=state.tasks.find(t=>t.id===value);if(t&&t.status!=='已完成'){t.status='已取消';t.error='已取消，不会导出或重新发送。';if(t.transport==='backend'&&t.track){state.paused=true;await backendProbe?.cancelTask(t.track)}}if(!state.tasks.some(x=>x.status==='待处理'))initializer?.cancel();await save();return}
- if(name==='restoreFailed'){let failed;try{failed=JSON.parse(await fs.readFile(join(dir,'failed-results.json'),'utf8'))}catch{throw Error('没有可恢复的上次失败结果')}if(!Array.isArray(failed))throw Error('恢复文件格式错误');for(const old of failed){if(state.tasks.some(t=>t.restoredId===old.id))continue;state.tasks.push({...old,id:randomUUID(),restoredId:old.id,track:null,status:'校验失败'})}await save();return}
+ if(name==='openDiagnostics'){const folder=join(dir,'diagnostics');await fs.mkdir(folder,{recursive:true});await shell.openPath(folder);return}
+ if(name==='importSeo'){
+  if(running||initializing||state.tasks.some(t=>t.status==='生成中'))throw Error('请先等待当前任务结束或暂停，再导入回答');
+  const previous=state.tasks.find(t=>t.id===value.id);if(!previous?.urlSource)throw Error('请先在任务列表中选择对应的网址SEO任务');
+  if(typeof value.json!=='string'||value.json.length>20000)throw Error('请粘贴完整且不超过20000字符的SEO JSON回答');
+  const t={...previous,id:randomUUID(),track:null,content:null,draft:null,repairItem:null,repairFields:null,repairHtml:false,repairBase:null,repairRound:0,error:null,raw:value.json,status:'待导出',revision:1,importedManually:true};
+  t.content=core.parseResult(value.json,t);state.tasks.push(t);await save();await finish(t);return t.id;
+ }
+ if(name==='restoreFailed'){
+let failed;try{failed=JSON.parse(await fs.readFile(join(dir,'failed-results.json'),'utf8'))}catch{throw Error('没有可恢复的上次失败结果')}if(!Array.isArray(failed))throw Error('恢复文件格式错误');for(const old of failed){if(state.tasks.some(t=>t.restoredId===old.id))continue;state.tasks.push({...old,id:randomUUID(),restoredId:old.id,track:null,status:'校验失败'})}await save();return}
  if(name==='repairFailed'){
   const previous=state.tasks.find(t=>t.id===value.id);if(!previous||previous.status!=='校验失败')throw Error('请选择校验失败任务');
   const t=structuredClone(previous);t.id=randomUUID();t.repairRound=0;t.repairAttempt=0;t.track=null;t.export=null;delete t.error;delete t.content;

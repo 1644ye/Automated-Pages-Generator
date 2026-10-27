@@ -23,7 +23,7 @@ function createAnswerRuntime() {
    this.encoder = new TextEncoder();
    this.lineBuffer = ''; this.event = ''; this.data = []; this.frameBytes = 0;
    this.bytes = 0; this.textBytes = 0; this.text = ''; this.frames = 0;
-   this.patchDiagnostic = null; this.error = ''; this.ended = false; this.complete = false; this.echo = false;
+   this.blockDiagnostic = null; this.patchDiagnostic = null; this.error = ''; this.ended = false; this.complete = false; this.echo = false;
    this.blockFinished = false; this.messageFinished = false;
    this.messageEnd = false; this.answerEnd = false; this.terminalEnd = false;
    this.binding = {conversationId: '', sectionId: '', questionId: '', answerId: '', questionMessageIndex: null, answerMessageIndex: null, lastMessageIndex: null};
@@ -60,6 +60,11 @@ function createAnswerRuntime() {
    return true;
   }
   block(value, initial, patch) {
+   const known=new Set(['text_block','text','content','block_type','block_id','is_finish','patch_type','type','url','title','references','reference','citation','citations','web_search','search_result','search_results','tool_call','tool_result','reasoning','thinking','image_block','code_block','link_block','reference_block']);
+   const structural=k=>known.has(k)||/^[a-z][a-z0-9_]{0,39}_(?:block|info|result|metadata)$/.test(k);
+   const shape=(v,depth=0)=>{if(v===null)return {type:'null'};if(typeof v==='string')return {type:'string',length:v.length};if(Array.isArray(v))return {type:'array',length:v.length,items:depth<3?v.slice(0,2).map(x=>shape(x,depth+1)):[]};if(object(v)){const keys=Object.keys(v),entries=keys.filter(structural).slice(0,24);return {type:'object',keyCount:keys.length,unknownKeyCount:keys.filter(k=>!structural(k)).length,fields:depth<3?Object.fromEntries(entries.map(k=>[k,shape(v[k],depth+1)])):{}}}return {type:typeof v}};
+   this.blockDiagnostic={stage:initial?'initial':'patch',blockType:control(value?.block_type)?value.block_type:null,patchType:control(value?.patch_type)?value.patch_type:null,hasBlockId:id(value?.block_id),finished:typeof value?.is_finish==='boolean'?value.is_finish:null,shape:shape(value)};
+
    if (!object(value) || value.block_type !== 10000 || !id(value.block_id)
     || !object(value.content) || !object(value.content.text_block)
     || Object.keys(value.content).some(key => key !== 'text_block')) return this.fail('出现未支持的回答内容块');
@@ -251,7 +256,7 @@ function createAnswerRuntime() {
   }
   snapshot() {
    return {text: this.text, complete: this.complete, error: this.error, ended: this.ended,
-    patchDiagnostic: this.patchDiagnostic ? copy(this.patchDiagnostic) : null, binding: {...this.binding}, profile: copy(this.profile), frames: this.frames, bytes: this.bytes,
+    blockDiagnostic: this.blockDiagnostic ? copy(this.blockDiagnostic) : null, patchDiagnostic: this.patchDiagnostic ? copy(this.patchDiagnostic) : null, binding: {...this.binding}, profile: copy(this.profile), frames: this.frames, bytes: this.bytes,
     signals: {echo: this.echo, blockFinished: this.blockFinished, messageFinished: this.messageFinished,
      messageEnd: this.messageEnd, answerEnd: this.answerEnd, terminalEnd: this.terminalEnd}};
   }
