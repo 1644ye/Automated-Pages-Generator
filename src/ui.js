@@ -104,4 +104,4 @@ $('repairFailed').onclick=async()=>{selectedId=await call('repairFailed',{id:sel
 
 $('restoreFailed').onclick=()=>call('restoreFailed');
 
-$('generateUrlSeo').onclick=async()=>{const button=$('generateUrlSeo');button.disabled=true;$('urlSeoStatus').textContent='正在读取网页；连接意外关闭时最多重试一次…';try{selectedId=await call('urlSeo',{url:$('seoUrl').value.trim(),exportXlsx:$('urlSeoExport').checked});if(!filledSeoTasks.has(selectedId))$('urlSeoStatus').textContent='网页已读取，正在等待豆包生成；成功后自动填入下方标题和内容。';call('state')}catch(e){$('urlSeoStatus').textContent=e.message}finally{button.disabled=false}};
+$('generateUrlSeo').onclick=async()=>{const button=$('generateUrlSeo');button.disabled=true;$('urlSeoStatus').textContent='正在将网址加入豆包生成队列…';try{selectedId=await call('urlSeo',{url:$('seoUrl').value.trim(),exportXlsx:$('urlSeoExport').checked});if(!filledSeoTasks.has(selectedId))$('urlSeoStatus').textContent='网址已交给豆包任务，等待豆包读取并生成；成功后自动填入下方标题和内容。';call('state')}catch(e){$('urlSeoStatus').textContent=e.message}finally{button.disabled=false}};

@@ -33,3 +33,9 @@ test('URL SEO uses captured page facts in Doubao prompt and validates result len
  assert.match(makePrompt(task),/actual site facts/);assert.doesNotMatch(makePrompt(task),/全球免运费/);
  assert.throws(()=>parseResult(JSON.stringify({items:[{id:'home-title',text:'x'.repeat(71)},{id:'home-description',text:'description'}]}),task),/超过70/);
 });
+test('URL-only SEO delegates reading to Doubao and stops unsupported access without retries',()=>{
+ const task={id:'direct',kind:'marketing',options:['home-title','home-description'],urlSource:{url:'https://chomps.com/',mode:'doubao-url'}};
+ const prompt=makePrompt(task);assert.match(prompt,/程序未抓取/);assert.match(prompt,/https:\/\/chomps.com/);assert.match(prompt,/_sourceStatus/);
+ let failure;try{parseResult('{"_sourceStatus":"unavailable"}',task)}catch(error){failure=error}assert.match(failure.message,/豆包报告无法读取/);assert.equal(prepareRepair(task,failure),false);
+ const out=parseResult(JSON.stringify({items:[{id:'home-title',text:'Title'},{id:'home-description',text:'Description'}]}),task);assert.equal(out.items.length,2);
+});
