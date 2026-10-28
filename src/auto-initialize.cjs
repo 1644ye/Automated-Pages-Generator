@@ -20,8 +20,20 @@ function connectionPage(op,prompt=''){
  if(op==='new'){
   if(read().trim())throw Error('豆包输入框有未发送草稿，请先手动处理，不会覆盖');
   const sidebar=document.querySelector('[data-testid="flow_chat_sidebar"]');if(!sidebar)throw Error('新对话入口未适配，请检查页面');
-  const matches=[...sidebar.querySelectorAll('button,a,div,span,[role="button"]')].filter(visible).filter(e=>(e.innerText||'').trim()==='新对话').filter(e=>![...e.children].some(c=>(c.innerText||'').trim()==='新对话'));
-  if(matches.length!==1)throw Error('新对话入口不唯一，未发送消息');matches[0].click();return true;
+  const nodes=[...sidebar.querySelectorAll('button,a,div,span,[role="button"],h2,h3')].filter(visible);
+  const text=e=>(e.innerText||'').trim();
+  const leaf=e=>![...e.children].some(c=>text(c)===text(e));
+  // The visible sidebar has navigation followed by Projects / Recent. A saved
+  // conversation can also be named 新对话; never treat those rows as actions.
+  const boundaries=nodes.filter(e=>/^(项目|最近|Projects|Recent)$/i.test(text(e))&&leaf(e));
+  const beforeLists=e=>boundaries.every(b=>!!(e.compareDocumentPosition(b)&4));
+  const matches=nodes.filter(e=>text(e)==='新对话'&&leaf(e)&&beforeLists(e));
+  const targets=[...new Set(matches.map(e=>{
+   const action=e.closest('button,a,[role="button"]');
+   return action&&sidebar.contains(action)&&beforeLists(action)?action:e;
+  }))].filter(usable);
+  if(targets.length!==1)throw Error('新对话导航入口数量为 '+targets.length+'（同名元素 '+nodes.filter(e=>text(e)==='新对话'&&leaf(e)).length+'，列表边界 '+boundaries.length+'），未发送消息；请显示完整侧栏后继续');
+  targets[0].click();return true;
  }
  if(op==='fill'){
   if(read().trim())throw Error('输入框有草稿，未覆盖');

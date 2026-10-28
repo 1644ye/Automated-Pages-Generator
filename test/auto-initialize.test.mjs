@@ -41,3 +41,19 @@ test('rich editor calibration whitespace is accepted but changed marker is not s
  const submit=()=>runInNewContext('('+connectionPage.toString()+')("submit",'+JSON.stringify(prompt)+')',context);
  assert.equal(submit(),'clicked');assert.equal(clicks,1);editor.innerText=prompt+'x';assert.throws(submit);assert.equal(clicks,1);
 });
+
+test('new conversation excludes same-named history and project rows without using screen coordinates',()=>{
+ let clicks=[];
+ const make=(text,index)=>({innerText:text,children:[],getClientRects:()=>[{}],getAttribute:()=>null,compareDocumentPosition:b=>index<b.index?4:2,index,closest:()=>null,click(){clicks.push(index)}});
+ const nav=make('新对话',0),project=make('项目',1),projectRow=make('新对话',2),recent=make('最近',3),history=make('新对话',4);
+ let nodes=[nav,project,projectRow,recent,history];
+ const editor={...make('',10),value:''};
+ const sidebar={querySelectorAll:()=>nodes,contains:()=>true};
+ const context={getComputedStyle:()=>({visibility:'visible'}),document:{querySelector:()=>sidebar,querySelectorAll:s=>s.startsWith('textarea')?[editor]:[]}};
+ const run=()=>runInNewContext('('+connectionPage.toString()+')("new")',context);
+ assert.equal(run(),true);assert.deepEqual(clicks,[0]);
+ clicks=[];nodes=[project,projectRow,recent,history];assert.throws(run,/入口数量为 0/);assert.deepEqual(clicks,[]);
+ nodes=[nav,make('新对话',0.5),recent,history];assert.throws(run,/入口数量为 2/);assert.deepEqual(clicks,[]);
+ nodes=[nav,history];assert.throws(run,/入口数量为 2/);assert.deepEqual(clicks,[]);
+ nodes=[nav,recent,history];editor.value='unsent draft';assert.throws(run,/草稿/);assert.deepEqual(clicks,[]);
+});
