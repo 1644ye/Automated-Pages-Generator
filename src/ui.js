@@ -108,3 +108,5 @@ $('generateUrlSeo').onclick=async()=>{const button=$('generateUrlSeo');button.di
 
 $('openDiagnostics').onclick=()=>call('openDiagnostics');
 $('importSeo').onclick=async()=>{selectedId=await call('importSeo',{id:selectedId,json:$('result').value});call('state')};
+
+$('showProtocol').onclick=()=>{const section=$('connection');section.hidden=false;section.querySelector('details').open=true;section.scrollIntoView({behavior:'smooth'});};
